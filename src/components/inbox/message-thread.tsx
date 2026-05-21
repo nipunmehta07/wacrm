@@ -227,42 +227,36 @@ export function MessageThread({
   }, [conversationId]);
   
  // Listen for new incoming customer messages via Supabase Realtime
+  // Listen for new incoming customer messages via Supabase Realtime
   useEffect(() => {
     if (!conversationId) return;
-    
-    console.log("📡 Subscribing to realtime...");
+
     const supabase = createClient();
-    
     const channel = supabase
-      // Changed the channel name slightly to avoid overlapping with existing channels
-      .channel(`chat-listener-${conversationId}`)
+      .channel(`realtime:messages:${conversationId}`)
       .on(
         "postgres_changes",
         {
           event: "INSERT",
           schema: "public",
           table: "messages",
-          // 🚨 Removed the strict Supabase filter here to catch all inserts
+          filter: `conversation_id=eq.${conversationId}`,
         },
         (payload) => {
-          console.log("🔥 REALTIME INSERT DETECTED:", payload);
           const row = payload.new as Message;
           
-          // 🚨 We filter it manually on the frontend instead
-          if (row.conversation_id === conversationId && row.sender_type === "customer") {
+          if (row.sender_type === "customer") {
+            // Use the ref here instead!
             onNewMessageRef.current(row);
           }
         }
       )
-      .subscribe((status) => {
-        console.log("✅ Realtime status:", status);
-      });
+      .subscribe();
 
     return () => {
-      console.log("🛑 Unsubscribing");
       supabase.removeChannel(channel);
     };
-  }, [conversationId]);
+  }, [conversationId]); // <-- IMPORTANT: onNewMessage is removed from here!
 
   // Reactions: fetch + realtime per conversation. Subscribing here (not at
   // the page level) keeps the channel scoped to the visible conversation,
