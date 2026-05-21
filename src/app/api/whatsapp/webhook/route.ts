@@ -737,8 +737,16 @@ async function findOrCreateContact(
     return null
   }
 
-  // Use phonesMatch for flexible matching
-  const existingContact = contacts?.find((c: ContactRow) => phonesMatch(c.phone, phone))
+  // Strip all non-numeric characters (+, spaces, dashes) to ensure a perfect match
+  const cleanIncomingPhone = phone.replace(/\D/g, '');
+  
+  const existingContact = contacts?.find((c: ContactRow) => {
+    const cleanExistingPhone = (c.phone || '').replace(/\D/g, '');
+    // Check if they match exactly, or if one is missing a country code
+    return cleanExistingPhone === cleanIncomingPhone || 
+           cleanExistingPhone.endsWith(cleanIncomingPhone) || 
+           cleanIncomingPhone.endsWith(cleanExistingPhone);
+  });
 
   if (existingContact) {
     // Update name if it changed
@@ -768,35 +776,4 @@ async function findOrCreateContact(
   }
 
   return { contact: newContact, wasCreated: true }
-}
-
-async function findOrCreateConversation(userId: string, contactId: string) {
-  // Look for existing conversation
-  const { data: existing, error: findError } = await supabaseAdmin()
-    .from('conversations')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('contact_id', contactId)
-    .single()
-
-  if (!findError && existing) {
-    return existing
-  }
-
-  // Create new conversation
-  const { data: newConv, error: createError } = await supabaseAdmin()
-    .from('conversations')
-    .insert({
-      user_id: userId,
-      contact_id: contactId,
-    })
-    .select()
-    .single()
-
-  if (createError) {
-    console.error('Error creating conversation:', createError)
-    return null
-  }
-
-  return newConv
 }
