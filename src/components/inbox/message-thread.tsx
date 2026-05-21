@@ -182,7 +182,12 @@ export function MessageThread({
   useEffect(() => {
     onMessagesLoadedRef.current = onMessagesLoaded;
   });
-
+	// ▼ ▼ ▼ PASTE THIS NEW CODE RIGHT HERE ▼ ▼ ▼
+  const onNewMessageRef = useRef(onNewMessage);
+  useEffect(() => {
+    onNewMessageRef.current = onNewMessage;
+  });
+  // ▲ ▲ ▲
   const conversationId = conversation?.id;
   const hasUnread = (conversation?.unread_count ?? 0) > 0;
 
@@ -224,8 +229,10 @@ export function MessageThread({
   // Listen for new incoming customer messages via Supabase Realtime
   useEffect(() => {
     if (!conversationId) return;
-
+    
+    console.log("📡 Subscribing to realtime for conversation:", conversationId);
     const supabase = createClient();
+    
     const channel = supabase
       .channel(`realtime:messages:${conversationId}`)
       .on(
@@ -237,21 +244,24 @@ export function MessageThread({
           filter: `conversation_id=eq.${conversationId}`,
         },
         (payload) => {
+          console.log("🔥 REALTIME INSERT DETECTED:", payload);
           const row = payload.new as Message;
           
-          // Only append customer messages. 
-          // Agent messages are already handled optimistically by handleSend.
           if (row.sender_type === "customer") {
-            onNewMessage(row);
+            // Using the ref prevents the useEffect from tearing down
+            onNewMessageRef.current(row);
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log("✅ Realtime subscription status:", status);
+      });
 
     return () => {
+      console.log("🛑 Unsubscribing from realtime");
       supabase.removeChannel(channel);
     };
-  }, [conversationId, onNewMessage]);
+  }, [conversationId]);
 
   // Reactions: fetch + realtime per conversation. Subscribing here (not at
   // the page level) keeps the channel scoped to the visible conversation,
