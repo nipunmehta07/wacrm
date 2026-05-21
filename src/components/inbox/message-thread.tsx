@@ -220,6 +220,38 @@ export function MessageThread({
       cancelled = true;
     };
   }, [conversationId]);
+  
+  // Listen for new incoming customer messages via Supabase Realtime
+  useEffect(() => {
+    if (!conversationId) return;
+
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`realtime:messages:${conversationId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload) => {
+          const row = payload.new as Message;
+          
+          // Only append customer messages. 
+          // Agent messages are already handled optimistically by handleSend.
+          if (row.sender_type === "customer") {
+            onNewMessage(row);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [conversationId, onNewMessage]);
 
   // Reactions: fetch + realtime per conversation. Subscribing here (not at
   // the page level) keeps the channel scoped to the visible conversation,
