@@ -245,9 +245,9 @@ function ladderLevel(s: string): number {
 
 /**
  * Can a recipient transition from `current` to `incoming`?
- *   - Along the ladder, only forward moves are allowed.
- *   - `failed` is accepted only from `pending` or `sent`; it's refused
- *     once the recipient has reached any of the success states.
+ * - Along the ladder, only forward moves are allowed.
+ * - `failed` is accepted only from `pending` or `sent`; it's refused
+ * once the recipient has reached any of the success states.
  */
 function isValidStatusTransition(current: string, incoming: string): boolean {
   if (incoming === 'failed') {
@@ -717,7 +717,7 @@ type ContactRow = any
 interface ContactOutcome {
   contact: ContactRow
   /** True when this call created the row; drives new_contact_created
-   *  automation dispatch in processMessage. */
+   * automation dispatch in processMessage. */
   wasCreated: boolean
 }
 
@@ -776,4 +776,35 @@ async function findOrCreateContact(
   }
 
   return { contact: newContact, wasCreated: true }
+}
+
+async function findOrCreateConversation(userId: string, contactId: string) {
+  // Look for existing conversation
+  const { data: existing, error: findError } = await supabaseAdmin()
+    .from('conversations')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('contact_id', contactId)
+    .single()
+
+  if (!findError && existing) {
+    return existing
+  }
+
+  // Create new conversation
+  const { data: newConv, error: createError } = await supabaseAdmin()
+    .from('conversations')
+    .insert({
+      user_id: userId,
+      contact_id: contactId,
+    })
+    .select()
+    .single()
+
+  if (createError) {
+    console.error('Error creating conversation:', createError)
+    return null
+  }
+
+  return newConv
 }
