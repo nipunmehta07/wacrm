@@ -38,6 +38,7 @@ interface BroadcastPayload {
   template: MessageTemplate;
   audience: AudienceConfig;
   variables: Record<string, VariableMapping>;
+  imageUrl?: string;
 }
 
 interface UseBroadcastSendingReturn {
