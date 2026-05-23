@@ -25,6 +25,8 @@ interface AudienceConfig {
 interface Step4Props {
   name: string;
   onNameChange: (name: string) => void;
+  imageUrl?: string; // 👈 Add this line
+  onImageUrlChange?: (url: string) => void; // 👈 Add this line
   template: MessageTemplate;
   audience: AudienceConfig;
   onSend: () => void;
@@ -37,6 +39,8 @@ interface Step4Props {
 export function Step4ScheduleSend({
   name,
   onNameChange,
+  imageUrl, // 👈 Destructure here
+  onImageUrlChange, // 👈 Destructure here
   template,
   audience,
   onSend,
@@ -100,14 +104,32 @@ export function Step4ScheduleSend({
       </div>
 
       {/* Broadcast Name */}
-      <div>
-        <label className="mb-1.5 block text-sm font-medium text-white">Broadcast Name</label>
-        <Input
-          value={name}
-          onChange={(e) => onNameChange(e.target.value)}
-          placeholder="e.g. Summer Sale Announcement"
-          className="border-slate-700 bg-slate-800 text-white placeholder:text-slate-500"
-        />
+      <div className="space-y-4">
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-white">Broadcast Name</label>
+          <Input
+            value={name}
+            onChange={(e) => onNameChange(e.target.value)}
+            placeholder="e.g. Summer Sale Announcement"
+            className="border-slate-700 bg-slate-800 text-white placeholder:text-slate-500"
+          />
+        </div>
+
+        {/* Dynamic Image Header URL */}
+        {onImageUrlChange && (
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-white">Header Image URL (Optional)</label>
+            <Input
+              value={imageUrl || ''}
+              onChange={(e) => onImageUrlChange(e.target.value)}
+              placeholder="e.g. https://your-site.com/banner.jpg"
+              className="border-slate-700 bg-slate-800 text-white placeholder:text-slate-500"
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Only required if your Meta template expects an image header.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Summary Card */}
