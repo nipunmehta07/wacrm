@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react"; // Added useState
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useTotalUnread } from "@/hooks/use-total-unread";
+import { toast } from "sonner"; // Added for notifications
 import {
   LayoutDashboard,
   MessageSquare,
@@ -17,6 +18,8 @@ import {
   LogOut,
   User,
   X,
+  RefreshCw, // Added for Sync Icon
+  Loader2, // Added for loading state
 } from "lucide-react";
 import {
   Avatar,
@@ -54,6 +57,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   const pathname = usePathname();
   const { profile, signOut } = useAuth();
   const totalUnread = useTotalUnread();
+  const [syncing, setSyncing] = useState(false); // Added sync state
 
   // Close the drawer when route changes — users opened it to navigate,
   // so once they pick a destination the drawer should get out of the way.
@@ -79,11 +83,51 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
     };
   }, [open, onClose]);
 
+  // --- NEW: Global Sync Function ---
+  async function handleGlobalSync() {
+    if (!profile) return;
+    setSyncing(true);
+    try {
+      const res = await fetch('/api/whatsapp/templates/sync', {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || `Sync failed (HTTP ${res.status})`);
+      }
+      toast.success(
+        `Synced ${data.total} template${data.total === 1 ? '' : 's'} from Meta` +
+          (data.inserted || data.updated
+            ? ` (${data.inserted} new, ${data.updated} updated)`
+            : ''),
+      );
+      if (Array.isArray(data.errors) && data.errors.length > 0) {
+        const preview = data.errors.slice(0, 3).map(
+          (e: { name: string; language: string; message: string }) =>
+            `${e.name} (${e.language})`,
+        );
+        const suffix =
+          data.errors.length > 3 ? `, +${data.errors.length - 3} more` : '';
+        toast.error(`Failed to sync: ${preview.join(', ')}${suffix}`);
+      }
+      if (data.truncated) {
+        toast.warning(
+          'Hit Meta pagination cap — more templates may exist. Contact support if this persists.',
+        );
+      }
+    } catch (err) {
+      console.error('Template sync error:', err);
+      toast.error(
+        err instanceof Error ? err.message : 'Failed to sync templates',
+      );
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   return (
     <>
-      {/* Backdrop — only exists on mobile and only when open. Clicking
-          it closes the drawer. Hidden from lg+ since the sidebar is
-          part of the main flex row there. */}
+      {/* Backdrop */}
       <button
         type="button"
         aria-label="Close menu"
@@ -98,17 +142,14 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
 
       <aside
         className={cn(
-          // Mobile: fixed drawer that slides in from the left.
           "fixed inset-y-0 left-0 z-40 flex h-full w-64 flex-col border-r border-slate-800 bg-slate-900",
           "transition-transform duration-200 ease-out will-change-transform",
           open ? "translate-x-0" : "-translate-x-full",
-          // Desktop: static, always visible — reset all the mobile framing.
           "lg:static lg:z-0 lg:w-60 lg:translate-x-0 lg:transition-none",
         )}
         aria-label="Primary"
       >
-        {/* Logo row. On mobile we put a close button here; on desktop the
-            close button is hidden since the sidebar is always-visible. */}
+        {/* Logo row */}
         <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-slate-800 px-4">
           <Link href="/dashboard" className="flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-500">
@@ -144,7 +185,6 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                   <Link
                     href={item.href}
                     className={cn(
-                      // Taller on mobile so fingers can hit the row reliably (≥44px).
                       "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2",
                       isActive
                         ? "bg-violet-500/10 text-violet-500"
@@ -170,6 +210,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
 
           <div className="my-4 border-t border-slate-800" />
 
+          {/* Bottom Settings & Sync */}
           <ul className="flex flex-col gap-1">
             {bottomNavItems.map((item) => {
               const isActive = pathname.startsWith(item.href);
@@ -190,6 +231,24 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                 </li>
               );
             })}
+            
+            {/* NEW: Sync Button styled as a menu item */}
+            <li>
+              <button
+                onClick={handleGlobalSync}
+                disabled={syncing}
+                className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors text-slate-400 hover:bg-slate-800 hover:text-white disabled:opacity-50 lg:py-2"
+              >
+                {syncing ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-violet-500" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+                <span className="flex-1 text-left">
+                  {syncing ? "Syncing..." : "Sync Templates"}
+                </span>
+              </button>
+            </li>
           </ul>
         </nav>
 
