@@ -446,7 +446,7 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
         try {
           // 1. Determine if an image URL exists in the incoming payload structure
           // (Check your UI to ensure it passes 'imageUrl' into the createAndSendBroadcast function)
-          const imageUrl = payload.imageUrl || payload.template?.header_url || null;
+          const imageUrl = payload.imageUrl || null;
 
           const res = await fetch('/api/whatsapp/broadcast', {
             method: 'POST',
