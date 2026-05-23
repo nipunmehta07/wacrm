@@ -76,6 +76,7 @@ export async function POST(request: Request) {
       template_name,
       template_language,
       template_params,
+      image_url,
     } = body
 
     // Normalize to a list of {phone, params} regardless of shape.
@@ -157,6 +158,7 @@ export async function POST(request: Request) {
             templateName: template_name,
             language: template_language || 'en_US',
             params: recipient.params ?? [],
+            imageUrl: image_url || null,
           })
           sentMessageId = result.messageId
           lastError = null
