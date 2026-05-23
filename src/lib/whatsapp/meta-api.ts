@@ -75,7 +75,7 @@ export interface SendTextMessageArgs {
   to: string
   text: string
   /** Meta's message_id of the message being replied to. Adds a `context` field
-   *  so WhatsApp renders the new message as a reply with a quote preview. */
+   * so WhatsApp renders the new message as a reply with a quote preview. */
   contextMessageId?: string
 }
 
@@ -120,6 +120,7 @@ export interface SendTemplateMessageArgs {
   templateName: string
   language?: string
   params?: string[]
+  imageUrl?: string | null // 👈 Added optional property for TypeScript verification
   /** Meta's message_id of the message being replied to. */
   contextMessageId?: string
 }
@@ -138,6 +139,7 @@ export async function sendTemplateMessage(
     templateName,
     language = 'en_US',
     params,
+    imageUrl = null, // 👈 Destructure imageUrl safely
     contextMessageId,
   } = args
   const url = `${META_API_BASE}/${phoneNumberId}/messages`
@@ -147,13 +149,35 @@ export async function sendTemplateMessage(
     language: { code: language },
   }
 
+  // Build template components arrays dynamically to preserve order
+  const components: unknown[] = []
+
+  // 1. Inject Image Header Parameter if an image URL exists
+  if (imageUrl) {
+    components.push({
+      type: 'header',
+      parameters: [
+        {
+          type: 'image',
+          image: {
+            link: imageUrl,
+          },
+        },
+      ],
+    })
+  }
+
+  // 2. Inject Body Text Parameters if text variables exist
   if (params && params.length > 0) {
-    template.components = [
-      {
-        type: 'body',
-        parameters: params.map((p) => ({ type: 'text', text: String(p) })),
-      },
-    ]
+    components.push({
+      type: 'body',
+      parameters: params.map((p) => ({ type: 'text', text: String(p) })),
+    })
+  }
+
+  // Assign components to your layout structure if any exist
+  if (components.length > 0) {
+    template.components = components
   }
 
   const body: Record<string, unknown> = {

@@ -184,6 +184,7 @@ export async function POST(request: Request) {
           to: phone,
           templateName: template_name,
           params: template_params || [],
+          imageUrl: media_url || null, // 👈 Maps your existing database 'media_url' to the Meta context parameter
           contextMessageId,
         })
         return result.messageId
