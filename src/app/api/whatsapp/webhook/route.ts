@@ -268,9 +268,9 @@ async function handleStatusUpdate(status: {
   status: string
   timestamp: string
   recipient_id: string
-  errors?: Array<{ code: number; title: string; message?: string }> // 👈 NEW: Accept errors array
 }) {
-  // 1) Mirror onto messages (legacy behavior)
+  // 1) Mirror onto messages (legacy behavior) — Meta's status values
+  //    already match the CHECK constraint on messages.status.
   const { error: msgErr } = await supabaseAdmin()
     .from('messages')
     .update({ status: status.status })
@@ -281,6 +281,9 @@ async function handleStatusUpdate(status: {
   }
 
   // 2) Mirror onto broadcast_recipients via whatsapp_message_id
+  //    (added in migration 003). The aggregate trigger on
+  //    broadcast_recipients re-derives the parent broadcast's
+  //    sent/delivered/read/failed counts automatically.
   const tsIso = new Date(parseInt(status.timestamp) * 1000).toISOString()
 
   const { data: recipient, error: recFetchErr } = await supabaseAdmin()
@@ -295,26 +298,14 @@ async function handleStatusUpdate(status: {
   }
   if (!recipient) return // message wasn't part of a broadcast — fine
 
-  // Guard transitions
+  // Guard transitions — forward-only on the success ladder, and
+  // `failed` only from pre-delivered states.
   if (!isValidStatusTransition(recipient.status, status.status)) return
 
-  // NEW: Extract error message if it's a failure
-  let errorMessage = null;
-  if (status.status === 'failed' && status.errors && status.errors.length > 0) {
-    const err = status.errors[0];
-    errorMessage = `[Code ${err.code || 'Unknown'}] ${err.message || err.title || 'Delivery failed'}`;
-  }
-
-  // Build the update payload
   const update: Record<string, unknown> = { status: status.status }
   if (status.status === 'sent' && !('sent_at' in update)) update.sent_at = tsIso
   if (status.status === 'delivered') update.delivered_at = tsIso
   if (status.status === 'read') update.read_at = tsIso
-  
-  // NEW: Attach the error message if we have one
-  if (errorMessage) {
-    update.error = errorMessage;
-  }
 
   const { error: recUpdateErr } = await supabaseAdmin()
     .from('broadcast_recipients')
@@ -325,6 +316,7 @@ async function handleStatusUpdate(status: {
     console.error('Error updating broadcast recipient status:', recUpdateErr)
   }
 }
+
 /**
  * If an inbound message's sender is on a still-unreplied
  * broadcast_recipients row, flip it to `replied` so the reply count
