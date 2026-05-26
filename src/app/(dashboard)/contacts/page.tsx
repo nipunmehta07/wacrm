@@ -70,6 +70,8 @@ export default function ContactsPage() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Contact | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   // All tags for display
   const [tagsMap, setTagsMap] = useState<Record<string, Tag>>({});
@@ -228,6 +230,42 @@ export default function ContactsPage() {
     setDeleteConfirmOpen(false);
     setDeleteTarget(null);
   }
+  // NEW LOGIC: Bulk Delete & Selection Helpers
+  async function handleBulkDelete() {
+    if (selectedIds.length === 0) return;
+    setBulkDeleting(true);
+
+    const { error } = await supabase
+      .from('contacts')
+      .delete()
+      .in('id', selectedIds);
+
+    if (error) {
+      toast.error('Failed to delete selected contacts');
+    } else {
+      toast.success(`${selectedIds.length} contacts deleted`);
+      setSelectedIds([]); // Reset selection
+      fetchContacts();    // Refresh the table
+    }
+
+    setBulkDeleting(false);
+  }
+
+  const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) {
+      setSelectedIds(contacts.map((c) => c.id));
+    } else {
+      setSelectedIds([]);
+    }
+  };
+
+  const handleSelectOne = (e: React.ChangeEvent<HTMLInputElement>, id: string) => {
+    if (e.target.checked) {
+      setSelectedIds((prev) => [...prev, id]);
+    } else {
+      setSelectedIds((prev) => prev.filter((selectedId) => selectedId !== id));
+    }
+  };
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
   const hasNext = page < totalPages - 1;
@@ -275,12 +313,51 @@ export default function ContactsPage() {
           className="pl-8 bg-slate-900 border-slate-700 text-white placeholder:text-slate-500"
         />
       </div>
+	  
+	  {/* Bulk Actions Banner */}
+      {selectedIds.length > 0 && (
+        <div className="flex items-center justify-between bg-violet-500/10 border border-violet-500/20 rounded-lg px-4 py-2 animate-in fade-in slide-in-from-top-2">
+          <span className="text-sm font-medium text-violet-400">
+            {selectedIds.length} contact{selectedIds.length !== 1 ? 's' : ''} selected
+          </span>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSelectedIds([])}
+              className="border-violet-500/30 text-violet-300 hover:bg-violet-500/20"
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={handleBulkDelete}
+              disabled={bulkDeleting}
+              className="bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20"
+            >
+              {bulkDeleting ? <Loader2 className="size-4 animate-spin mr-2" /> : <Trash2 className="size-4 mr-2" />}
+              Delete Selected
+            </Button>
+          </div>
+        </div>
+      )}
 
-      {/* Table */}
+
+     {/* Table */}
       <div className="rounded-lg border border-slate-800 overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow className="border-slate-800 hover:bg-transparent">
+              {/* NEW: Select All Checkbox Header */}
+              <TableHead className="w-12 pl-4">
+                <input
+                  type="checkbox"
+                  className="size-4 rounded border-slate-700 bg-slate-900 accent-violet-600 cursor-pointer"
+                  checked={contacts.length > 0 && selectedIds.length === contacts.length}
+                  onChange={handleSelectAll}
+                />
+              </TableHead>
               <TableHead className="text-slate-400">Name</TableHead>
               <TableHead className="text-slate-400">Phone</TableHead>
               <TableHead className="text-slate-400 hidden md:table-cell">Email</TableHead>
@@ -293,7 +370,7 @@ export default function ContactsPage() {
           <TableBody>
             {loading ? (
               <TableRow className="border-slate-800">
-                <TableCell colSpan={7} className="text-center py-12">
+                <TableCell colSpan={8} className="text-center py-12">
                   <div className="flex flex-col items-center gap-2">
                     <Loader2 className="size-6 animate-spin text-violet-500" />
                     <p className="text-sm text-slate-500">Loading contacts...</p>
@@ -302,7 +379,7 @@ export default function ContactsPage() {
               </TableRow>
             ) : contacts.length === 0 ? (
               <TableRow className="border-slate-800">
-                <TableCell colSpan={7} className="text-center py-12">
+                <TableCell colSpan={8} className="text-center py-12">
                   <div className="flex flex-col items-center gap-2">
                     <Users className="size-8 text-slate-600" />
                     <p className="text-sm text-slate-500">
@@ -326,9 +403,18 @@ export default function ContactsPage() {
               contacts.map((contact) => (
                 <TableRow
                   key={contact.id}
-                  className="border-slate-800 hover:bg-slate-900/50 cursor-pointer"
+                  className={`border-slate-800 hover:bg-slate-900/50 cursor-pointer ${selectedIds.includes(contact.id) ? 'bg-slate-900/80' : ''}`}
                   onClick={() => openDetail(contact.id)}
                 >
+                  {/* NEW: Individual Row Checkbox */}
+                  <TableCell className="pl-4" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      className="size-4 rounded border-slate-700 bg-slate-900 accent-violet-600 cursor-pointer"
+                      checked={selectedIds.includes(contact.id)}
+                      onChange={(e) => handleSelectOne(e, contact.id)}
+                    />
+                  </TableCell>
                   <TableCell className="text-white font-medium">
                     {contact.name || <span className="text-slate-500 italic">Unnamed</span>}
                   </TableCell>
