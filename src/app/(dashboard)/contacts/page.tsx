@@ -95,9 +95,37 @@ export default function ContactsPage() {
       .order('created_at', { ascending: false })
       .range(from, to);
 
-    if (search.trim()) {
+   if (search.trim()) {
       const term = `%${search.trim()}%`;
-      query = query.or(`name.ilike.${term},phone.ilike.${term},email.ilike.${term},company.ilike.${term}`);
+
+      // 1. Check if the search term matches any tag names first
+      const { data: matchingTags } = await supabase
+        .from('tags')
+        .select('id')
+        .ilike('name', term);
+
+      let taggedContactIds: string[] = [];
+      if (matchingTags && matchingTags.length > 0) {
+        const tagIds = matchingTags.map(t => t.id);
+        const { data: ctData } = await supabase
+          .from('contact_tags')
+          .select('contact_id')
+          .in('tag_id', tagIds);
+
+        if (ctData && ctData.length > 0) {
+          taggedContactIds = ctData.map(ct => ct.contact_id);
+        }
+      }
+
+      // 2. Build the search query dynamically
+      if (taggedContactIds.length > 0) {
+        // Wrap UUIDs in quotes for Supabase's OR syntax
+        const idList = taggedContactIds.map(id => `"${id}"`).join(',');
+        query = query.or(`name.ilike.${term},phone.ilike.${term},email.ilike.${term},company.ilike.${term},id.in.(${idList})`);
+      } else {
+        // Fallback to normal search if no tags match
+        query = query.or(`name.ilike.${term},phone.ilike.${term},email.ilike.${term},company.ilike.${term}`);
+      }
     }
 
     const { data, count, error } = await query;
@@ -241,11 +269,9 @@ export default function ContactsPage() {
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);
-            // Reset pagination when the query changes — the result
-            // set shrinks/grows, page N may no longer be valid.
             setPage(0);
           }}
-          placeholder="Search by name, company, phone, or email..."
+          placeholder="Search by name, company, or tags..." // 👈 Updated placeholder
           className="pl-8 bg-slate-900 border-slate-700 text-white placeholder:text-slate-500"
         />
       </div>
