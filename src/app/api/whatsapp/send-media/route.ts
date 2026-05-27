@@ -30,12 +30,15 @@ export async function POST(request: Request) {
       .eq('user_id', conv?.user_id)
       .single();
 
-    if (!config || !conv?.contact?.phone) {
-      return NextResponse.json({ error: 'WhatsApp active account configuration missing' }, { status: 404 });
+    // NEW: Safely extract contact object from the inferred array or object structure
+    const contactData = Array.isArray(conv?.contact) ? conv.contact[0] : (conv?.contact as any);
+    const recipientPhone = contactData?.phone;
+
+    if (!config || !recipientPhone) {
+      return NextResponse.json({ error: 'WhatsApp active account configuration missing or invalid contact' }, { status: 404 });
     }
 
     // Decrypt access token (match your internal encryption helper layout)
-    // For this route, import your custom decrypt tool or read raw token if needed
     const accessToken = config.access_token; 
 
     // 2. Stream Binary to Meta Media Upload Endpoint
@@ -66,7 +69,7 @@ export async function POST(request: Request) {
     // 3. Command Meta to Deliver Media ID to Recipient
     const messagePayload: Record<string, any> = {
       messaging_product: 'whatsapp',
-      to: conv.contact.phone,
+      to: recipientPhone,
       type: contentType,
     };
 
