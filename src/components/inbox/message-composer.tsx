@@ -57,7 +57,7 @@ export function MessageComposer({
       if (textareaRef.current) {
         textareaRef.current.style.height = "auto";
       }
-    } {
+    } finally {
       setSending(false);
     }
   }, [text, sending, sessionExpired, onSend, replyTo?.id]);
