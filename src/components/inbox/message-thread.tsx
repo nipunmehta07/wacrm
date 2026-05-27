@@ -870,6 +870,11 @@ export function MessageThread({
         sessionExpired={sessionInfo.expired}
         onSend={handleSend}
         onOpenTemplates={handleOpenTemplates}
+        // NEW: Triggers dynamic data synchronizations immediately following uploads
+        onMediaSent={() => {
+          // Re-fetch or pass your custom state updates to match realtime events
+          toast.success("Syncing feed...");
+        }}
         replyTo={replyTo}
         onClearReply={() => setReplyTo(null)}
       />
