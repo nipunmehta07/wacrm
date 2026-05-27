@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { decrypt } from '@/lib/whatsapp/encryption';
 
 // Initialize service client
 const supabaseAdmin = createClient(
@@ -39,7 +40,8 @@ export async function POST(request: Request) {
     }
 
     // Decrypt access token (match your internal encryption helper layout)
-    const accessToken = config.access_token; 
+    // ✅ FIXED: Safely decrypt ciphertext to parse the authentic credentials string
+    const accessToken = decrypt(config.access_token);
 
     // 2. Stream Binary to Meta Media Upload Endpoint
     const metaUploadForm = new FormData();
