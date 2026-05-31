@@ -189,6 +189,22 @@ export function defaultConfigFor(type: NodeType): Record<string, unknown> {
   }
 }
 
+export function applyNodePositions(
+  nodes: BuilderNode[],
+  positions: Record<string, { x: number; y: number }>,
+): BuilderNode[] {
+  return nodes.map((n) => {
+    const next = positions[n.node_key];
+    return next
+      ? {
+          ...n,
+          position_x: Math.round(next.x),
+          position_y: Math.round(next.y),
+        }
+      : n;
+  });
+}
+
 // ============================================================
 // Context
 // ============================================================
@@ -443,21 +459,15 @@ export function FlowEditorProvider({
 
   const updateNodePositions = useCallback(
     (positions: Record<string, { x: number; y: number }>) => {
-      setState((s) => ({
+      // Initial Dagre layout hydration should not dirty the editor:
+      // opening a legacy all-zero flow must not enable Save or arm
+      // beforeunload before the user actually edits anything.
+      setStateRaw((s) => ({
         ...s,
-        nodes: s.nodes.map((n) => {
-          const next = positions[n.node_key];
-          return next
-            ? {
-                ...n,
-                position_x: Math.round(next.x),
-                position_y: Math.round(next.y),
-              }
-            : n;
-        }),
+        nodes: applyNodePositions(s.nodes, positions),
       }));
     },
-    [setState],
+    [],
   );
 
   const addNode = useCallback(
