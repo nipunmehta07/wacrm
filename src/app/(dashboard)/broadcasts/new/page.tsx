@@ -42,6 +42,12 @@ export default function NewBroadcastPage() {
     Record<string, { type: 'static' | 'field' | 'custom_field'; value: string }>
   >({});
   const [name, setName] = useState('');
+  const [headerImageUrl, setHeaderImageUrl] = useState('');
+
+  function handleTemplateSelect(nextTemplate: MessageTemplate) {
+    setTemplate(nextTemplate);
+    setHeaderImageUrl('');
+  }
 
   async function handleSend() {
     if (!template) return;
@@ -58,6 +64,7 @@ export default function NewBroadcastPage() {
           excludeTagIds: audience.excludeTagIds,
         },
         variables,
+        headerMediaUrl: headerImageUrl.trim() || undefined,
       });
       router.push(`/broadcasts/${broadcastId}`);
     } catch (err) {
@@ -187,7 +194,7 @@ export default function NewBroadcastPage() {
           {currentStep === 0 && (
             <Step1ChooseTemplate
               selectedTemplate={template}
-              onSelect={setTemplate}
+              onSelect={handleTemplateSelect}
               onNext={() => setCurrentStep(1)}
               onBack={() => router.push('/broadcasts')}
             />
@@ -214,6 +221,8 @@ export default function NewBroadcastPage() {
               name={name}
               onNameChange={setName}
               template={template}
+              headerImageUrl={headerImageUrl}
+              onHeaderImageUrlChange={setHeaderImageUrl}
               audience={audience}
               onSend={handleSend}
               onSaveDraft={handleSaveDraft}

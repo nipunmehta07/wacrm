@@ -26,6 +26,8 @@ interface Step4Props {
   name: string;
   onNameChange: (name: string) => void;
   template: MessageTemplate;
+  headerImageUrl: string;
+  onHeaderImageUrlChange: (url: string) => void;
   audience: AudienceConfig;
   onSend: () => void;
   onSaveDraft?: () => void;
@@ -34,10 +36,21 @@ interface Step4Props {
   progress: number;
 }
 
+function isValidHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 export function Step4ScheduleSend({
   name,
   onNameChange,
   template,
+  headerImageUrl,
+  onHeaderImageUrlChange,
   audience,
   onSend,
   onSaveDraft,
@@ -48,6 +61,21 @@ export function Step4ScheduleSend({
   const [showConfirm, setShowConfirm] = useState(false);
   const [estimatedReach, setEstimatedReach] = useState<number>(0);
   const [loadingReach, setLoadingReach] = useState(true);
+  const needsHeaderImageUrl =
+    template.header_type === 'image' && !template.header_media_url?.trim();
+  const trimmedHeaderImageUrl = headerImageUrl.trim();
+  const headerImageUrlError =
+    trimmedHeaderImageUrl && !isValidHttpUrl(trimmedHeaderImageUrl)
+      ? 'Enter a valid public image URL starting with http:// or https://.'
+      : null;
+  const hasRequiredHeaderImageUrl =
+    !needsHeaderImageUrl || Boolean(trimmedHeaderImageUrl);
+  const canSend = Boolean(
+    name.trim() &&
+    !isProcessing &&
+    hasRequiredHeaderImageUrl &&
+    !headerImageUrlError,
+  );
 
   useEffect(() => {
     async function calculateReach() {
@@ -109,6 +137,30 @@ export function Step4ScheduleSend({
           className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
         />
       </div>
+
+      {template.header_type === 'image' && (
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-foreground">
+            Header Image URL
+          </label>
+          <Input
+            value={headerImageUrl}
+            onChange={(e) => onHeaderImageUrlChange(e.target.value)}
+            placeholder={
+              template.header_media_url
+                ? 'Optional override for this broadcast'
+                : 'https://example.com/image.jpg'
+            }
+            className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
+          />
+          <p className="mt-1 text-xs text-muted-foreground">
+            Meta needs a public image link for image-header templates.
+          </p>
+          {headerImageUrlError && (
+            <p className="mt-1 text-xs text-red-400">{headerImageUrlError}</p>
+          )}
+        </div>
+      )}
 
       {/* Summary Card */}
       <div className="rounded-xl border border-border bg-card/50 p-4 space-y-3">
@@ -189,7 +241,7 @@ export function Step4ScheduleSend({
           <DialogTrigger
             render={
               <Button
-                disabled={!name.trim() || isProcessing}
+                disabled={!canSend}
                 className="bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
               />
             }
@@ -221,6 +273,7 @@ export function Step4ScheduleSend({
                   setShowConfirm(false);
                   onSend();
                 }}
+                disabled={!canSend}
                 className="bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 <Send className="h-4 w-4" />

@@ -39,6 +39,7 @@ interface BroadcastPayload {
   template: MessageTemplate;
   audience: AudienceConfig;
   variables: Record<string, VariableMapping>;
+  headerMediaUrl?: string;
 }
 
 interface UseBroadcastSendingReturn {
@@ -448,6 +449,9 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
                   customValueIndex.get(r.contact.id),
                 )
               : [],
+            messageParams: payload.headerMediaUrl?.trim()
+              ? { headerMediaUrl: payload.headerMediaUrl.trim() }
+              : undefined,
           }));
 
         if (apiRecipients.length === 0) continue;
