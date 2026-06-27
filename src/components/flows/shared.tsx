@@ -30,6 +30,8 @@ import {
   Workflow,
 } from "lucide-react";
 
+import { cn } from "@/lib/utils";
+
 // ============================================================
 // Node-type union — single source of truth for every place the UI
 // enumerates types (add menu, type pickers, switch statements). Kept
@@ -67,51 +69,158 @@ export interface BuilderNode {
 
 export const NODE_META: Record<
   NodeType,
-  { label: string; icon: typeof Workflow; color: string }
+  { label: string; icon: typeof Workflow; color: string; blurb: string }
 > = {
-  start: { label: "Start", icon: PlayCircle, color: "text-emerald-400" },
+  start: {
+    label: "Start",
+    icon: PlayCircle,
+    color: "text-emerald-400",
+    blurb: "Entry point of the flow",
+  },
   send_message: {
     label: "Send message",
     icon: MessageCircle,
     color: "text-sky-400",
+    blurb: "Sends a WhatsApp text message",
   },
   send_buttons: {
     label: "Send buttons",
     icon: ListChecks,
     color: "text-primary",
+    blurb: "Sends quick-reply buttons",
   },
   send_list: {
     label: "Send list",
     icon: ListPlus,
     color: "text-indigo-400",
+    blurb: "Sends a tappable list of options",
   },
   send_media: {
     label: "Send media",
     icon: Paperclip,
     color: "text-cyan-400",
+    blurb: "Sends an image, video, or document",
   },
   collect_input: {
     label: "Collect input",
     icon: Inbox,
     color: "text-teal-400",
+    blurb: "Asks a question, saves the reply",
   },
   condition: {
     label: "If / else",
     icon: GitFork,
     color: "text-fuchsia-400",
+    blurb: "Branches on a rule",
   },
   set_tag: {
     label: "Tag contact",
     icon: Tag,
     color: "text-pink-400",
+    blurb: "Adds or removes a contact tag",
   },
   handoff: {
     label: "Handoff to agent",
     icon: UserPlus,
     color: "text-amber-400",
+    blurb: "Hands the conversation to a human",
   },
-  end: { label: "End", icon: Flag, color: "text-muted-foreground" },
+  end: {
+    label: "End",
+    icon: Flag,
+    color: "text-muted-foreground",
+    blurb: "Ends the flow",
+  },
 };
+
+// ============================================================
+// Per-node-type color system.
+//
+// Each node type gets its own hue so the canvas reads at a glance —
+// what KIND of step is this. Kept as raw oklch (not Tailwind classes)
+// so a node card can tint its icon chip, type label, selection ring,
+// and edge ports from one source, the way the Flow Builder design
+// handoff does. Hues sit in the same oklch family as the app tokens
+// in globals.css; they don't replace --primary (the accent), they
+// complement it. `nodeColors()` derives the soft/ring/text variants.
+// ============================================================
+
+const NODE_HUE: Record<NodeType, { l: number; c: number; h: number }> = {
+  start: { l: 0.62, c: 0.13, h: 162 }, // emerald — the start, echoes WhatsApp green
+  send_message: { l: 0.6, c: 0.18, h: 293 }, // violet — the workhorse
+  send_buttons: { l: 0.62, c: 0.16, h: 254 }, // cobalt
+  send_list: { l: 0.62, c: 0.15, h: 277 }, // indigo
+  send_media: { l: 0.65, c: 0.12, h: 210 }, // sky
+  collect_input: { l: 0.65, c: 0.1, h: 185 }, // teal — capture
+  condition: { l: 0.72, c: 0.15, h: 65 }, // amber — a fork in the road
+  set_tag: { l: 0.65, c: 0.15, h: 350 }, // pink
+  handoff: { l: 0.65, c: 0.17, h: 16 }, // rose — hands off
+  end: { l: 0.55, c: 0.01, h: 260 }, // neutral grey — terminal
+};
+
+export interface NodeColors {
+  /** Full-strength hue — icon glyph, selection ring, port fill. */
+  solid: string;
+  /** ~14% tint — icon chip background, soft fills. */
+  soft: string;
+  /** ~45% tint — hover border / focus ring. */
+  ring: string;
+  /** Hue for the uppercase type label, kept readable in BOTH modes. */
+  text: string;
+}
+
+export function nodeColors(type: NodeType): NodeColors {
+  const t = NODE_HUE[type];
+  const solid = `oklch(${t.l} ${t.c} ${t.h})`;
+  return {
+    solid,
+    soft: `oklch(${t.l} ${t.c} ${t.h} / 0.14)`,
+    ring: `oklch(${t.l} ${t.c} ${t.h} / 0.45)`,
+    // Blend the hue toward the live --foreground token so the label
+    // holds contrast in BOTH modes: in dark mode --foreground is
+    // near-white (the label lightens to read on the dark card), in
+    // light mode it's near-black (the label darkens to read on the
+    // white card). The old fixed-light value only worked on dark.
+    text: `color-mix(in oklch, ${solid}, var(--foreground) 38%)`,
+  };
+}
+
+// ============================================================
+// Shared node icon chip — the per-type colored glyph badge used in
+// the canvas node card, list-view card, inspector header, and the
+// add-step menu. One component so a styling change (radius, contrast,
+// hover) lands in every place at once and the `nodeColors()` lookup
+// lives in exactly one spot.
+// ============================================================
+
+export function NodeIconChip({
+  type,
+  size = 24,
+  iconSize = 14,
+  className,
+}: {
+  type: NodeType;
+  /** Chip side length in px. */
+  size?: number;
+  /** Glyph side length in px. */
+  iconSize?: number;
+  className?: string;
+}) {
+  const meta = NODE_META[type];
+  const c = nodeColors(type);
+  const Icon = meta.icon;
+  return (
+    <span
+      className={cn(
+        "flex shrink-0 items-center justify-center rounded-lg",
+        className,
+      )}
+      style={{ width: size, height: size, background: c.soft, color: c.solid }}
+    >
+      <Icon size={iconSize} />
+    </span>
+  );
+}
 
 // ============================================================
 // Pure editing helpers — used by forms in both views.

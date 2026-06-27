@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import type { Contact, Tag, ContactTag } from '@/types';
@@ -30,6 +30,11 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import {
   Search,
   Plus,
   Upload,
@@ -41,6 +46,8 @@ import {
   ChevronLeft,
   ChevronRight,
   SlidersHorizontal,
+  Filter,
+  X,
 } from 'lucide-react';
 import { ContactForm } from '@/components/contacts/contact-form';
 import { ContactDetailView } from '@/components/contacts/contact-detail-view';
@@ -66,6 +73,8 @@ export default function ContactsPage() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
+  // Tag filter — contacts shown must have ANY of these tags (OR).
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
 
   // Modals
   const [formOpen, setFormOpen] = useState(false);
@@ -86,16 +95,29 @@ export default function ContactsPage() {
   // All tags for display
   const [tagsMap, setTagsMap] = useState<Record<string, Tag>>({});
 
+  // Guards against out-of-order fetch responses: each fetchContacts run
+  // claims a sequence number and only the latest is allowed to commit its
+  // results. Without this, rapidly toggling tag filters could let a slower
+  // earlier request resolve last and render stale rows.
+  const fetchSeq = useRef(0);
+
   const fetchTags = useCallback(async () => {
     const { data } = await supabase.from('tags').select('*');
     if (data) {
       const map: Record<string, Tag> = {};
       data.forEach((t) => (map[t.id] = t));
       setTagsMap(map);
+      // Drop any filter selections whose tag no longer exists (e.g. a tag
+      // deleted elsewhere) so it can't linger invisibly in the query.
+      setSelectedTagIds((prev) => {
+        const pruned = prev.filter((id) => map[id]);
+        return pruned.length === prev.length ? prev : pruned;
+      });
     }
   }, [supabase]);
 
   const fetchContacts = useCallback(async () => {
+    const seq = ++fetchSeq.current;
     setLoading(true);
     // The visible rows are about to change — drop any selection that
     // referred to the old page/search results so the bulk bar can't
@@ -104,40 +126,69 @@ export default function ContactsPage() {
 
     const from = page * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
+    const term = search.trim();
 
-    let query = supabase
-      .from('contacts')
-      .select('*', { count: 'exact' })
-      .order('created_at', { ascending: false })
-      .range(from, to);
+    let contactRows: Contact[];
+    let count: number;
 
-    if (search.trim()) {
-      const term = `%${search.trim()}%`;
-      query = query.or(`name.ilike.${term},phone.ilike.${term},email.ilike.${term}`);
+    if (selectedTagIds.length > 0) {
+      // Tag filter active — resolve it server-side (join + distinct +
+      // windowed total count + pagination) so a tag covering many
+      // contacts can't silently truncate the result or overflow an IN
+      // clause. See migration 025_filter_contacts_by_tags.
+      const { data, error } = await supabase.rpc('filter_contacts_by_tags', {
+        p_tag_ids: selectedTagIds,
+        p_search: term || null,
+        p_limit: PAGE_SIZE,
+        p_offset: from,
+      });
+      if (seq !== fetchSeq.current) return; // superseded by a newer fetch
+      if (error) {
+        toast.error('Failed to load contacts');
+        setLoading(false);
+        return;
+      }
+      const rows = (data ?? []) as { contact: Contact; total_count: number }[];
+      contactRows = rows.map((r) => r.contact);
+      count = rows.length > 0 ? Number(rows[0].total_count) : 0;
+    } else {
+      let query = supabase
+        .from('contacts')
+        .select('*', { count: 'exact' })
+        .order('created_at', { ascending: false })
+        .range(from, to);
+
+      if (term) {
+        const like = `%${term}%`;
+        query = query.or(`name.ilike.${like},phone.ilike.${like},email.ilike.${like}`);
+      }
+
+      const { data, count: exactCount, error } = await query;
+      if (seq !== fetchSeq.current) return; // superseded by a newer fetch
+      if (error) {
+        toast.error('Failed to load contacts');
+        setLoading(false);
+        return;
+      }
+      contactRows = data ?? [];
+      count = exactCount ?? 0;
     }
 
-    const { data, count, error } = await query;
+    setTotalCount(count);
 
-    if (error) {
-      toast.error('Failed to load contacts');
-      setLoading(false);
-      return;
-    }
-
-    setTotalCount(count ?? 0);
-
-    if (!data || data.length === 0) {
+    if (contactRows.length === 0) {
       setContacts([]);
       setLoading(false);
       return;
     }
 
     // Fetch tags for these contacts
-    const contactIds = data.map((c) => c.id);
+    const contactIds = contactRows.map((c) => c.id);
     const { data: contactTags } = await supabase
       .from('contact_tags')
       .select('contact_id, tag_id')
       .in('contact_id', contactIds);
+    if (seq !== fetchSeq.current) return; // superseded by a newer fetch
 
     const tagsByContact: Record<string, string[]> = {};
     contactTags?.forEach((ct) => {
@@ -145,7 +196,7 @@ export default function ContactsPage() {
       tagsByContact[ct.contact_id].push(ct.tag_id);
     });
 
-    const enriched: ContactWithTags[] = data.map((c) => ({
+    const enriched: ContactWithTags[] = contactRows.map((c) => ({
       ...c,
       tags: (tagsByContact[c.id] ?? [])
         .map((tid) => tagsMap[tid])
@@ -154,7 +205,7 @@ export default function ContactsPage() {
 
     setContacts(enriched);
     setLoading(false);
-  }, [supabase, page, search, tagsMap]);
+  }, [supabase, page, search, selectedTagIds, tagsMap]);
 
   // Load-once-on-mount-ish data fetches. Each setter inside runs
   // inside an async promise completion (Supabase await), not
@@ -265,6 +316,27 @@ export default function ContactsPage() {
   const hasNext = page < totalPages - 1;
   const hasPrev = page > 0;
 
+  // Tag filter helpers. Every change resets to page 0 — the result set
+  // shrinks/grows so page N may no longer be valid (mirrors the search box).
+  const allTags = Object.values(tagsMap).sort((a, b) =>
+    a.name.localeCompare(b.name)
+  );
+  const hasActiveFilters = search.trim().length > 0 || selectedTagIds.length > 0;
+
+  function toggleTagFilter(tagId: string) {
+    setSelectedTagIds((prev) =>
+      prev.includes(tagId)
+        ? prev.filter((id) => id !== tagId)
+        : [...prev, tagId]
+    );
+    setPage(0);
+  }
+
+  function clearTagFilters() {
+    setSelectedTagIds([]);
+    setPage(0);
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -308,20 +380,120 @@ export default function ContactsPage() {
         </div>
       </div>
 
-      {/* Search */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-        <Input
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            // Reset pagination when the query changes — the result
-            // set shrinks/grows, page N may no longer be valid.
-            setPage(0);
-          }}
-          placeholder="Search by name, phone, or email..."
-          className="pl-8 bg-card border-border text-foreground placeholder:text-muted-foreground"
-        />
+      {/* Search + tag filter */}
+      <div className="space-y-2">
+        <div className="flex flex-col sm:flex-row gap-2">
+          <div className="relative w-full max-w-sm">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                // Reset pagination when the query changes — the result
+                // set shrinks/grows, page N may no longer be valid.
+                setPage(0);
+              }}
+              placeholder="Search by name, phone, or email..."
+              className="pl-8 bg-card border-border text-foreground placeholder:text-muted-foreground"
+            />
+          </div>
+
+          <Popover>
+            <PopoverTrigger
+              render={
+                <Button
+                  variant="outline"
+                  className="border-border text-muted-foreground hover:bg-muted shrink-0"
+                />
+              }
+            >
+              <Filter className="size-4" />
+              Filter by tags
+              {selectedTagIds.length > 0 && (
+                <span className="ml-1 inline-flex items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
+                  {selectedTagIds.length}
+                </span>
+              )}
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-64 p-0">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+                <span className="text-sm font-medium text-popover-foreground">
+                  Filter by tags
+                </span>
+                {selectedTagIds.length > 0 && (
+                  <button
+                    onClick={clearTagFilters}
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Clear all
+                  </button>
+                )}
+              </div>
+              {allTags.length === 0 ? (
+                <p className="px-3 py-4 text-sm text-muted-foreground text-center">
+                  No tags yet.
+                </p>
+              ) : (
+                <div className="max-h-64 overflow-y-auto py-1">
+                  {allTags.map((tag) => (
+                    <label
+                      key={tag.id}
+                      className="flex items-center gap-2.5 px-3 py-1.5 cursor-pointer hover:bg-muted/50"
+                    >
+                      <Checkbox
+                        checked={selectedTagIds.includes(tag.id)}
+                        onCheckedChange={() => toggleTagFilter(tag.id)}
+                        aria-label={`Filter by ${tag.name}`}
+                      />
+                      <span
+                        className="size-2.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: tag.color }}
+                      />
+                      <span className="text-sm text-popover-foreground truncate">
+                        {tag.name}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </PopoverContent>
+          </Popover>
+        </div>
+
+        {/* Active tag-filter chips */}
+        {selectedTagIds.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {selectedTagIds.map((id) => {
+              const tag = tagsMap[id];
+              if (!tag) return null;
+              return (
+                <span
+                  key={id}
+                  className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
+                  style={{
+                    backgroundColor: tag.color + '20',
+                    color: tag.color,
+                  }}
+                >
+                  {tag.name}
+                  <button
+                    onClick={() => toggleTagFilter(id)}
+                    aria-label={`Remove ${tag.name} filter`}
+                    className="hover:opacity-70"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </span>
+              );
+            })}
+            <button
+              onClick={clearTagFilters}
+              className="text-xs text-muted-foreground hover:text-foreground px-1"
+            >
+              Clear all
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Bulk action bar */}
@@ -393,9 +565,11 @@ export default function ContactsPage() {
                   <div className="flex flex-col items-center gap-2">
                     <Users className="size-8 text-muted-foreground" />
                     <p className="text-sm text-muted-foreground">
-                      {search ? 'No contacts match your search.' : 'No contacts yet.'}
+                      {hasActiveFilters
+                        ? 'No contacts match your filters.'
+                        : 'No contacts yet.'}
                     </p>
-                    {!search && (
+                    {!hasActiveFilters && (
                       <Button
                         variant="outline"
                         size="sm"

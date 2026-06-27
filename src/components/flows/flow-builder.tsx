@@ -46,6 +46,8 @@ import { cn } from "@/lib/utils";
 import { type ValidationIssue } from "@/lib/flows/validate";
 import {
   NODE_META,
+  NodeIconChip,
+  nodeColors,
   slugify,
   summarizeNode,
   type BuilderNode,
@@ -150,7 +152,7 @@ export function FlowBuilder() {
   }, [flashKey]);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="mx-auto flex max-w-3xl flex-col gap-6 px-6 py-7">
       <TriggerPanel
         state={state}
         setState={setState}
@@ -390,13 +392,14 @@ function NodeCard({
   onSetEntry: () => void;
 }) {
   const meta = NODE_META[node.node_type];
+  const c = nodeColors(node.node_type);
   const hasError = issues.some((i) => i.severity === "error");
   const preview = summarizeNode(node);
   return (
     <div
       ref={cardRef}
       className={cn(
-        "rounded-lg border bg-card transition-shadow duration-500",
+        "relative overflow-hidden rounded-xl border bg-card transition-shadow duration-500",
         hasError
           ? "border-red-500/40"
           : isEntry
@@ -406,15 +409,23 @@ function NodeCard({
           "ring-2 ring-primary ring-offset-2 ring-offset-background",
       )}
     >
+      {/* type-colored left rail, ties the list row to the canvas hue */}
+      <span
+        className="absolute inset-y-0 left-0 w-[3px]"
+        style={{ background: c.solid }}
+      />
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left"
+        className="flex w-full items-center gap-3 px-4 py-3 pl-5 text-left"
       >
-        <meta.icon className={cn("h-4 w-4 shrink-0", meta.color)} />
+        <NodeIconChip type={node.node_type} size={32} iconSize={16} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-medium text-foreground">
+            <span
+              className="truncate text-[11px] font-semibold uppercase tracking-wider"
+              style={{ color: c.text }}
+            >
               {meta.label}
             </span>
             <code className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">

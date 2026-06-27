@@ -40,6 +40,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   applyNodeChanges,
   Background,
+  BackgroundVariant,
   Controls,
   Handle,
   MiniMap,
@@ -76,6 +77,8 @@ import {
 import { autoLayout, shouldAutoLayout } from "@/lib/flows/layout";
 import {
   NODE_META,
+  NodeIconChip,
+  nodeColors,
   summarizeNode,
   type BuilderNode,
   type NodeType,
@@ -109,11 +112,26 @@ const NODE_HEIGHT = 90;
 // view's collapsed card so the two views feel like the same product.
 // ============================================================
 
+// Echo the design's green/red branch ports for the condition node's
+// true / false slots; every other slot inherits the node's own hue.
+// The true/false hues are derived from the start (emerald) and handoff
+// (rose) node colors so all branch/port colors stay single-sourced in
+// NODE_HUE — a palette tweak there can't leave these stale.
+function slotColor(nodeType: NodeType, slotId: string, fallback: string) {
+  if (nodeType === "condition" && slotId === "true") {
+    return nodeColors("start").solid;
+  }
+  if (nodeType === "condition" && slotId === "false") {
+    return nodeColors("handoff").solid;
+  }
+  return fallback;
+}
+
 function FlowNodeCard({ data, selected }: NodeProps) {
   const { node, isEntry, isFlashed } = data as NodeData;
   const meta = NODE_META[node.node_type];
+  const c = nodeColors(node.node_type);
   const summary = summarizeNode(node);
-  const Icon = meta.icon;
   const slots = outgoingSlots(node);
   // Start nodes are entry-only; nothing ever targets them, so they
   // don't need an incoming Handle. Every other node type accepts
@@ -127,11 +145,23 @@ function FlowNodeCard({ data, selected }: NodeProps) {
   const isMultiSlot = slots.length > 1;
   return (
     <div
+      style={
+        {
+          "--nc": c.solid,
+          "--nc-soft": c.soft,
+          "--nc-ring": c.ring,
+          "--nc-text": c.text,
+          borderColor: selected ? c.solid : undefined,
+          boxShadow: selected
+            ? `0 0 0 1px ${c.solid}, 0 14px 36px -12px ${c.ring}`
+            : undefined,
+        } as React.CSSProperties
+      }
       className={cn(
-        "relative min-w-[220px] max-w-[260px] rounded-lg border bg-card/95 px-3 py-2 text-left shadow-lg backdrop-blur transition-colors",
+        "relative min-w-[220px] max-w-[260px] rounded-xl border bg-card px-3.5 py-3 text-left shadow-[0_2px_6px_rgba(0,0,0,0.18)] transition-[box-shadow,border-color]",
         selected
-          ? "border-primary ring-1 ring-primary/40"
-          : "border-border hover:border-border",
+          ? "border-[var(--nc)]"
+          : "border-border hover:border-[var(--nc-ring)]",
         // Flash overrides hover/selected colors briefly. Tailwind's
         // built-in `animate-pulse` is too gentle; a ring with the
         // amber accent matches the list view's flash semantics.
@@ -142,32 +172,40 @@ function FlowNodeCard({ data, selected }: NodeProps) {
         <Handle
           type="target"
           position={Position.Left}
-          className="!h-2.5 !w-2.5 !border-border !bg-muted"
+          className="!h-2.5 !w-2.5 !border-2 !border-[var(--nc-ring)] !bg-card"
         />
       )}
 
       <div className="flex items-center gap-2">
-        <Icon className={cn("h-3.5 w-3.5 shrink-0", meta.color)} />
-        <span className="truncate text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        <NodeIconChip
+          type={node.node_type}
+          size={24}
+          iconSize={14}
+          className="rounded-md"
+        />
+        <span
+          className="truncate text-[10.5px] font-semibold uppercase tracking-wider"
+          style={{ color: c.text }}
+        >
           {meta.label}
         </span>
         {isEntry && (
-          <span className="ml-auto rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-300">
+          <span className="ml-auto rounded border border-border px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-[0.1em] text-muted-foreground">
             Entry
           </span>
         )}
       </div>
-      <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
+      <div className="mt-2 truncate font-mono text-[11px] text-muted-foreground">
         {node.node_key}
       </div>
       {summary && (
-        <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+        <div className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
           {summary}
         </div>
       )}
 
       {isMultiSlot && (
-        <div className="mt-2 flex flex-col gap-1 border-t border-border pt-2">
+        <div className="mt-2.5 flex flex-col gap-1 border-t border-border pt-2.5">
           {slots.map((slot) => (
             <div
               key={slot.id}
@@ -180,11 +218,14 @@ function FlowNodeCard({ data, selected }: NodeProps) {
                 type="source"
                 id={slot.id}
                 position={Position.Right}
+                style={{
+                  borderColor: slotColor(node.node_type, slot.id, c.solid),
+                }}
                 // Override default absolute positioning so the handle
                 // sits flush with the right edge of the card instead
                 // of floating at vertical center. The negative offset
                 // matches the card's px-3 + the handle's own radius.
-                className="!relative !right-auto !top-auto !h-2.5 !w-2.5 !translate-x-[12px] !transform-none !border-border !bg-muted"
+                className="!relative !right-auto !top-auto !h-2.5 !w-2.5 !translate-x-[14px] !transform-none !border-2 !bg-card"
               />
             </div>
           ))}
@@ -196,7 +237,8 @@ function FlowNodeCard({ data, selected }: NodeProps) {
           type="source"
           id={slots[0].id}
           position={Position.Right}
-          className="!h-2.5 !w-2.5 !border-border !bg-muted"
+          style={{ borderColor: c.solid }}
+          className="!h-2.5 !w-2.5 !border-2 !bg-card"
         />
       )}
     </div>
@@ -457,7 +499,7 @@ function FlowCanvasInner() {
 
   if (rfNodes.length === 0) {
     return (
-      <div className="flex h-[60vh] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-background text-sm text-muted-foreground">
+      <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
         <p>No nodes yet.</p>
         <CanvasAddNodeButton />
       </div>
@@ -466,7 +508,7 @@ function FlowCanvasInner() {
 
   return (
     <>
-      <div className="h-[70vh] w-full overflow-hidden rounded-lg border border-border bg-background">
+      <div className="h-full w-full overflow-hidden">
         <ReactFlow
           nodes={rfNodes}
           edges={rfEdges}
@@ -492,19 +534,29 @@ function FlowCanvasInner() {
           minZoom={0.2}
           maxZoom={1.5}
         >
-          <Background gap={24} size={1} color="var(--border)" />
+          {/* Dot grid, matching the design's faint canvas backdrop. */}
+          <Background
+            variant={BackgroundVariant.Dots}
+            gap={22}
+            size={1.4}
+            color="var(--border)"
+          />
           <Controls
-            className="!border-border !bg-card [&_button]:!border-border [&_button]:!bg-card [&_button:hover]:!bg-muted [&_button_svg]:!fill-foreground"
+            className="!overflow-hidden !rounded-xl !border !border-border !bg-card !shadow-[0_6px_20px_-8px_rgba(0,0,0,0.5)] [&_button]:!border-border [&_button]:!bg-card [&_button:hover]:!bg-muted [&_button_svg]:!fill-foreground"
             showInteractive={false}
           />
           <MiniMap
             pannable
             zoomable
-            nodeColor="var(--muted-foreground)"
+            nodeColor={(n) =>
+              nodeColors((n.data as NodeData).node.node_type).solid
+            }
+            nodeStrokeWidth={0}
+            nodeBorderRadius={3}
             maskColor="color-mix(in oklch, var(--background) 70%, transparent)"
-            className="!border !border-border !bg-card"
+            className="!rounded-xl !border !border-border !bg-card !shadow-[0_6px_20px_-8px_rgba(0,0,0,0.5)]"
           />
-          <Panel position="bottom-right" className="!bottom-4 !right-4">
+          <Panel position="top-left" className="!left-4 !top-4">
             <CanvasAddNodeButton />
           </Panel>
         </ReactFlow>
@@ -557,26 +609,31 @@ function NodeEditSheet({
     );
   }
   const meta = NODE_META[node.node_type];
-  const Icon = meta.icon;
+  const c = nodeColors(node.node_type);
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
       <SheetContent
         side="right"
         className="flex w-full flex-col gap-0 border-l border-border bg-popover p-0 sm:max-w-md"
       >
-        <SheetHeader className="border-b border-border px-5 py-4">
-          <SheetTitle className="flex items-center gap-2 text-popover-foreground">
-            <Icon className={cn("h-4 w-4 shrink-0", meta.color)} />
-            <span>{meta.label}</span>
-            {isEntry && (
-              <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
-                Entry
-              </span>
-            )}
-          </SheetTitle>
-          <SheetDescription className="font-mono text-[11px] text-muted-foreground">
+        <SheetHeader className="flex-row items-center gap-3 space-y-0 border-b border-border px-5 py-4">
+          <NodeIconChip type={node.node_type} size={36} iconSize={18} />
+          <div className="min-w-0 flex-1">
+            <SheetTitle className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider">
+              <span style={{ color: c.text }}>{meta.label}</span>
+              {isEntry && (
+                <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-300">
+                  Entry
+                </span>
+              )}
+            </SheetTitle>
+            <SheetDescription className="mt-0.5 text-xs text-muted-foreground">
+              {meta.blurb}
+            </SheetDescription>
+          </div>
+          <code className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
             {node.node_key}
-          </SheetDescription>
+          </code>
         </SheetHeader>
 
         <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-5 py-4">
@@ -658,20 +715,36 @@ function CanvasAddNodeButton() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground shadow-lg transition-colors hover:bg-muted"
+        className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-[13px] font-medium text-primary-foreground shadow-[0_6px_20px_-8px_rgba(0,0,0,0.5)] transition-colors hover:bg-primary-hover"
         aria-label="Add node"
       >
-        <Plus className="h-3.5 w-3.5" />
+        <Plus className="h-4 w-4" />
         Add node
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="border-border bg-popover">
+      <DropdownMenuContent
+        align="start"
+        className="w-[268px] border-border bg-popover p-1.5"
+      >
+        <div className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Add a step
+        </div>
         {ADD_NODE_TYPES.map((t) => {
           const meta = NODE_META[t];
-          const Icon = meta.icon;
           return (
-            <DropdownMenuItem key={t} onClick={() => handleAdd(t)}>
-              <Icon className={cn("h-3.5 w-3.5", meta.color)} />
-              {meta.label}
+            <DropdownMenuItem
+              key={t}
+              onClick={() => handleAdd(t)}
+              className="gap-3 py-2"
+            >
+              <NodeIconChip type={t} size={28} iconSize={16} className="rounded-md" />
+              <span className="flex flex-col">
+                <span className="text-[13px] font-semibold text-popover-foreground">
+                  {meta.label}
+                </span>
+                <span className="text-[11.5px] text-muted-foreground">
+                  {meta.blurb}
+                </span>
+              </span>
             </DropdownMenuItem>
           );
         })}

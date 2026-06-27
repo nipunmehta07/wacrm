@@ -723,6 +723,18 @@ function KeywordMatchConfig({
   // when the trigger type changes, so the seed stays in sync.
   const [draft, setDraft] = useState(keywords.join(", "))
 
+  // Persist the default the <select> displays. The dropdown falls back to
+  // "contains" for display, but leaving it untouched would otherwise omit
+  // match_type from the saved config — and activation validation then
+  // rejected it (trigger.match_type). Seed once on mount; the component
+  // remounts when the trigger type changes, matching the keywords draft.
+  useEffect(() => {
+    if (config?.match_type == null) {
+      onChange({ ...config, match_type: "contains" })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   function commit() {
     const parsed = draft
       .split(",")
