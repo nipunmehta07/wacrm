@@ -214,6 +214,8 @@ export default function NewBroadcastPage() {
               template={template}
               variables={variables}
               onUpdate={setVariables}
+              headerMediaUrl={headerImageUrl}
+              onHeaderMediaUrlChange={setHeaderImageUrl}
               onNext={() => setCurrentStep(3)}
               onBack={() => setCurrentStep(1)}
             />
