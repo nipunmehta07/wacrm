@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
+import { countAudience, type AudienceConfig } from '@/lib/broadcast-audience';
 import { createClient } from '@/lib/supabase/client';
 import { MessageTemplate } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -14,29 +15,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { ArrowLeft, Send, Loader2, Users, Save, ChevronDown, ChevronUp, Eye } from 'lucide-react';
+import { ArrowLeft, Send, Loader2, Users, Save } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-
-const PREVIEW_LIMIT = 100;
-
-interface AudienceConfig {
-  type: string;
-  tagIds?: string[];
-  csvContacts?: { phone: string; name?: string }[];
-  excludeTagIds?: string[];
-  customField?: {
-    fieldId: string;
-    operator: 'is' | 'is_not' | 'contains';
-    value: string;
-  };
-}
 
 interface Step4Props {
   name: string;
   onNameChange: (name: string) => void;
   template: MessageTemplate;
-  headerImageUrl: string;
-  onHeaderImageUrlChange: (url: string) => void;
   audience: AudienceConfig;
   onSend: () => void;
   onSaveDraft?: () => void;
@@ -45,21 +30,10 @@ interface Step4Props {
   progress: number;
 }
 
-function isValidHttpUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return url.protocol === 'http:' || url.protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
-
 export function Step4ScheduleSend({
   name,
   onNameChange,
   template,
-  headerImageUrl,
-  onHeaderImageUrlChange,
   audience,
   onSend,
   onSaveDraft,
@@ -72,51 +46,13 @@ export function Step4ScheduleSend({
   const [estimatedReach, setEstimatedReach] = useState<number>(0);
   const [loadingReach, setLoadingReach] = useState(true);
 
-  // Recipient preview
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const [previewContacts, setPreviewContacts] = useState<{ name: string | null; phone: string }[]>([]);
-  const [loadingPreview, setLoadingPreview] = useState(false);
-  const [previewLoaded, setPreviewLoaded] = useState(false);
-  const needsHeaderImageUrl =
-    template.header_type === 'image' && !template.header_media_url?.trim();
-  const trimmedHeaderImageUrl = headerImageUrl.trim();
-  const headerImageUrlError =
-    trimmedHeaderImageUrl && !isValidHttpUrl(trimmedHeaderImageUrl)
-      ? 'Enter a valid public image URL starting with http:// or https://.'
-      : null;
-  const hasRequiredHeaderImageUrl =
-    !needsHeaderImageUrl || Boolean(trimmedHeaderImageUrl);
-  const canSend = Boolean(
-    name.trim() &&
-    !isProcessing &&
-    hasRequiredHeaderImageUrl &&
-    !headerImageUrlError,
-  );
-
   useEffect(() => {
     async function calculateReach() {
       setLoadingReach(true);
       try {
-        const supabase = createClient();
-
-        if (audience.type === 'all') {
-          const { count } = await supabase
-            .from('contacts')
-            .select('*', { count: 'exact', head: true });
-          setEstimatedReach(count ?? 0);
-        } else if (audience.type === 'tags' && audience.tagIds && audience.tagIds.length > 0) {
-          const { data: contactTags } = await supabase
-            .from('contact_tags')
-            .select('contact_id')
-            .in('tag_id', audience.tagIds);
-
-          const uniqueIds = new Set((contactTags ?? []).map((ct) => ct.contact_id));
-          setEstimatedReach(uniqueIds.size);
-        } else if (audience.type === 'csv' && audience.csvContacts) {
-          setEstimatedReach(audience.csvContacts.length);
-        } else {
-          setEstimatedReach(0);
-        }
+        setEstimatedReach((await countAudience(createClient(), audience)) ?? 0);
+      } catch {
+        setEstimatedReach(0);
       } finally {
         setLoadingReach(false);
       }
@@ -124,68 +60,6 @@ export function Step4ScheduleSend({
 
     calculateReach();
   }, [audience]);
-
-  const fetchPreview = useCallback(async () => {
-    if (previewLoaded) return;
-    setLoadingPreview(true);
-    try {
-      const supabase = createClient();
-
-      if (audience.type === 'csv' && audience.csvContacts) {
-        setPreviewContacts(
-          audience.csvContacts.slice(0, PREVIEW_LIMIT).map((c) => ({
-            name: c.name ?? null,
-            phone: c.phone,
-          }))
-        );
-      } else if (audience.type === 'tags' && audience.tagIds && audience.tagIds.length > 0) {
-        // Reuse the same RPC the contacts page uses
-        const { data } = await supabase.rpc('filter_contacts_by_tags', {
-          p_tag_ids: audience.tagIds,
-          p_search: null,
-          p_limit: PREVIEW_LIMIT,
-          p_offset: 0,
-        });
-        const rows = (data ?? []) as { contact: { name: string | null; phone: string }; total_count: number }[];
-        setPreviewContacts(rows.map((r) => ({ name: r.contact.name, phone: r.contact.phone })));
-      } else if (audience.type === 'all') {
-        const { data } = await supabase
-          .from('contacts')
-          .select('name, phone')
-          .order('created_at', { ascending: false })
-          .limit(PREVIEW_LIMIT);
-        setPreviewContacts((data ?? []).map((c) => ({ name: c.name, phone: c.phone })));
-      } else if (audience.type === 'custom_field' && audience.customField?.fieldId && audience.customField.value) {
-        const { fieldId, operator, value } = audience.customField;
-        let q = supabase
-          .from('contact_custom_values')
-          .select('contact_id')
-          .eq('custom_field_id', fieldId);
-        if (operator === 'is') q = q.eq('value', value);
-        else if (operator === 'is_not') q = q.neq('value', value);
-        else q = q.ilike('value', `%${value}%`);
-        const { data: cvRows } = await q;
-        const ids = (cvRows ?? []).map((r) => r.contact_id).slice(0, PREVIEW_LIMIT);
-        if (ids.length > 0) {
-          const { data } = await supabase
-            .from('contacts')
-            .select('name, phone')
-            .in('id', ids)
-            .limit(PREVIEW_LIMIT);
-          setPreviewContacts((data ?? []).map((c) => ({ name: c.name, phone: c.phone })));
-        }
-      }
-      setPreviewLoaded(true);
-    } finally {
-      setLoadingPreview(false);
-    }
-  }, [audience, previewLoaded]);
-
-  function togglePreview() {
-    const next = !previewOpen;
-    setPreviewOpen(next);
-    if (next) fetchPreview();
-  }
 
   const audienceLabel =
     audience.type === 'all'
@@ -216,97 +90,6 @@ export function Step4ScheduleSend({
         />
       </div>
 
-      {template.header_type === 'image' && (
-        <div>
-          <label className="mb-1.5 block text-sm font-medium text-foreground">
-            Header Image URL
-          </label>
-          <Input
-            value={headerImageUrl}
-            onChange={(e) => onHeaderImageUrlChange(e.target.value)}
-            placeholder={
-              template.header_media_url
-                ? 'Optional override for this broadcast'
-                : 'https://example.com/image.jpg'
-            }
-            className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
-          />
-          <p className="mt-1 text-xs text-muted-foreground">
-            Meta needs a public image link for image-header templates.
-          </p>
-          {headerImageUrlError && (
-            <p className="mt-1 text-xs text-red-400">{headerImageUrlError}</p>
-          )}
-        </div>
-      )}
-
-      {/* Recipient Preview */}
-      <div className="rounded-xl border border-border bg-card/50 overflow-hidden">
-        <button
-          type="button"
-          onClick={togglePreview}
-          className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-foreground hover:bg-muted/50 transition-colors"
-        >
-          <div className="flex items-center gap-2">
-            <Eye className="h-4 w-4 text-primary" />
-            Preview Recipients
-            {!loadingReach && (
-              <span className="ml-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
-                {estimatedReach.toLocaleString()}
-              </span>
-            )}
-          </div>
-          {previewOpen ? (
-            <ChevronUp className="h-4 w-4 text-muted-foreground" />
-          ) : (
-            <ChevronDown className="h-4 w-4 text-muted-foreground" />
-          )}
-        </button>
-
-        {previewOpen && (
-          <div className="border-t border-border">
-            {loadingPreview ? (
-              <div className="flex items-center justify-center gap-2 py-8">
-                <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                <span className="text-sm text-muted-foreground">Loading contacts…</span>
-              </div>
-            ) : previewContacts.length === 0 ? (
-              <p className="px-4 py-6 text-center text-sm text-muted-foreground">No contacts found for this audience.</p>
-            ) : (
-              <>
-                <div className="max-h-64 overflow-y-auto">
-                  <table className="w-full text-sm">
-                    <thead className="sticky top-0 bg-card/95 backdrop-blur-sm">
-                      <tr className="border-b border-border">
-                        <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">#</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">Name</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">Phone</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {previewContacts.map((c, i) => (
-                        <tr key={c.phone + i} className="border-b border-border/50 last:border-0 hover:bg-muted/30">
-                          <td className="px-4 py-2 text-xs text-muted-foreground">{i + 1}</td>
-                          <td className="px-4 py-2 text-foreground">
-                            {c.name || <span className="italic text-muted-foreground">Unnamed</span>}
-                          </td>
-                          <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{c.phone}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                {estimatedReach > PREVIEW_LIMIT && (
-                  <p className="border-t border-border px-4 py-2 text-center text-xs text-muted-foreground">
-                    Showing first {PREVIEW_LIMIT} of {estimatedReach.toLocaleString()} contacts
-                  </p>
-                )}
-              </>
-            )}
-          </div>
-        )}
-      </div>
-
       {/* Summary Card */}
       <div className="rounded-xl border border-border bg-card/50 p-4 space-y-3">
         <p className="text-sm font-medium text-foreground">{t('scheduleSend.summary')}</p>
@@ -320,7 +103,7 @@ export function Step4ScheduleSend({
             <p className="text-foreground">{audienceLabel}</p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">Estimated Reach</p>
+            <p className="text-xs text-muted-foreground">{t('scheduleSend.estimatedReach')}</p>
             <div className="flex items-center gap-1.5">
               {loadingReach ? (
                 <Loader2 className="h-3 w-3 animate-spin text-primary" />
@@ -333,7 +116,7 @@ export function Step4ScheduleSend({
             </div>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">Language</p>
+            <p className="text-xs text-muted-foreground">{t('scheduleSend.language')}</p>
             <p className="text-foreground">{template.language ?? 'en_US'}</p>
           </div>
         </div>
@@ -386,7 +169,7 @@ export function Step4ScheduleSend({
           <DialogTrigger
             render={
               <Button
-                disabled={!canSend}
+                disabled={!name.trim() || isProcessing}
                 className="bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
               />
             }
@@ -396,13 +179,15 @@ export function Step4ScheduleSend({
           </DialogTrigger>
           <DialogContent className="border-border bg-popover sm:max-w-md">
             <DialogHeader>
-              <DialogTitle className="text-popover-foreground">Confirm Broadcast</DialogTitle>
+              <DialogTitle className="text-popover-foreground">{t('scheduleSend.confirmTitle')}</DialogTitle>
               <DialogDescription className="text-muted-foreground">
-                You are about to send this broadcast to{' '}
-                <span className="font-medium text-popover-foreground">{estimatedReach.toLocaleString()}</span>{' '}
-                contacts using the{' '}
-                <span className="font-medium text-popover-foreground">{template.name}</span> template.
-                This action cannot be undone.
+                {t.rich('scheduleSend.confirmDesc', {
+                  count: estimatedReach,
+                  template: template.name,
+                  b: (chunks) => (
+                    <span className="font-medium text-popover-foreground">{chunks}</span>
+                  ),
+                })}
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
@@ -418,7 +203,6 @@ export function Step4ScheduleSend({
                   setShowConfirm(false);
                   onSend();
                 }}
-                disabled={!canSend}
                 className="bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 <Send className="h-4 w-4" />
