@@ -227,8 +227,6 @@ export default function NewBroadcastPage() {
               name={name}
               onNameChange={setName}
               template={template}
-              headerImageUrl={headerImageUrl}
-              onHeaderImageUrlChange={setHeaderImageUrl}
               audience={audience}
               onSend={handleSend}
               onSaveDraft={handleSaveDraft}
