@@ -1084,7 +1084,18 @@
         "estimatedReach": "Alcance estimado",
         "language": "Idioma",
         "confirmTitle": "Confirmar disparo",
-        "confirmDesc": "Você está prestes a enviar este disparo para <b>{count, number}</b> {count, plural, =1 {contato} other {contatos}} usando o modelo <b>{template}</b>. Esta ação não pode ser desfeita."
+        "confirmDesc": "Você está prestes a enviar este disparo para <b>{count, number}</b> {count, plural, =1 {contato} other {contatos}} usando o modelo <b>{template}</b>. Esta ação não pode ser desfeita.",
+        "recipientsTitle": "Destinatários",
+        "recipientsSearchPlaceholder": "Buscar destinatários por nome ou telefone...",
+        "loadingRecipients": "Carregando destinatários...",
+        "noRecipientsFound": "Nenhum destinatário encontrado para este público.",
+        "noRecipientsMatch": "Nenhum destinatário corresponde à sua pesquisa.",
+        "recipientColName": "Destinatário",
+        "recipientColPhone": "Telefone",
+        "recipientColDetails": "Detalhes",
+        "showingRecipients": "Mostrando {start}–{end} de {total} destinatários",
+        "pageIndicator": "Página {page} de {pages}",
+        "unnamedContact": "Contato sem nome"
       }
     },
     "sending": {

@@ -1084,7 +1084,18 @@
         "estimatedReach": "Estimated Reach",
         "language": "Language",
         "confirmTitle": "Confirm Broadcast",
-        "confirmDesc": "You are about to send this broadcast to <b>{count, number}</b> {count, plural, =1 {contact} other {contacts}} using the <b>{template}</b> template. This action cannot be undone."
+        "confirmDesc": "You are about to send this broadcast to <b>{count, number}</b> {count, plural, =1 {contact} other {contacts}} using the <b>{template}</b> template. This action cannot be undone.",
+        "recipientsTitle": "Recipients",
+        "recipientsSearchPlaceholder": "Search recipients by name or phone...",
+        "loadingRecipients": "Loading recipients...",
+        "noRecipientsFound": "No recipients found for this audience.",
+        "noRecipientsMatch": "No recipients match your search.",
+        "recipientColName": "Recipient",
+        "recipientColPhone": "Phone",
+        "recipientColDetails": "Details",
+        "showingRecipients": "Showing {start}–{end} of {total} recipients",
+        "pageIndicator": "Page {page} of {pages}",
+        "unnamedContact": "Unnamed Contact"
       }
     },
     "sending": {
