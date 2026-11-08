@@ -195,7 +195,7 @@ describe('POST /api/whatsapp/templates/sync', () => {
 
     expect(res.status).toBe(502)
     expect(body.error).toContain('Invalid Parameter')
-    expect(body.error).toContain('WABA ID "WABA-1"')
-    expect(body.error).toContain('WhatsApp Manager')
+    expect(body.error).toContain('ID "WABA-1"')
+    expect(body.error).toContain('WhatsApp accounts')
   })
 })

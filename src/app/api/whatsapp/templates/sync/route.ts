@@ -132,33 +132,88 @@ function extractSampleValues(
 }
 
 /**
- * Inspect the access token to automatically discover WABA ID(s) granted to it.
+ * Attempt to resolve the real WhatsApp Business Account ID (WABA ID)
+ * from Meta if the provided ID was a Business Portfolio ID, Phone Number ID,
+ * or if it can be discovered from the access token or business edges.
  */
-async function discoverWabaIdFromToken(accessToken: string): Promise<string | null> {
-  try {
-    const res = await fetch(
-      `${META_API_BASE}/debug_token?input_token=${encodeURIComponent(accessToken)}&access_token=${encodeURIComponent(accessToken)}`,
-    )
-    if (!res.ok) return null
-    const json = (await res.json()) as {
-      data?: {
-        granular_scopes?: { scope?: string; target_ids?: string[] }[]
+async function resolveActualWabaId(
+  candidateId: string | null,
+  accessToken: string,
+): Promise<string | null> {
+  const headers = { Authorization: `Bearer ${accessToken}` }
+
+  // 1. If candidateId is provided, check if it is a Business Portfolio ID
+  // that owns WhatsApp Business Accounts:
+  if (candidateId) {
+    for (const edge of ['owned_whatsapp_business_accounts', 'client_whatsapp_business_accounts']) {
+      try {
+        const res = await fetch(
+          `${META_API_BASE}/${encodeURIComponent(candidateId)}/${edge}?fields=id,name`,
+          { headers },
+        )
+        if (res.ok) {
+          const body = (await res.json()) as { data?: { id?: string; name?: string }[] }
+          if (body?.data?.length && body.data[0].id) {
+            return body.data[0].id.trim()
+          }
+        }
+      } catch {
+        // continue
       }
     }
-    const scopes = json?.data?.granular_scopes
-    if (Array.isArray(scopes)) {
-      const mgmt = scopes.find(
-        (s) =>
-          s.scope === 'whatsapp_business_management' || s.scope === 'whatsapp_business_messaging',
-      )
-      if (mgmt?.target_ids?.length && typeof mgmt.target_ids[0] === 'string') {
-        return mgmt.target_ids[0].trim()
-      }
-    }
-    return null
-  } catch {
-    return null
   }
+
+  // 2. Try debug_token with App Secret if configured, or with access token
+  try {
+    const authQuery =
+      process.env.META_APP_ID && process.env.META_APP_SECRET
+        ? `access_token=${encodeURIComponent(process.env.META_APP_ID)}%7C${encodeURIComponent(process.env.META_APP_SECRET)}`
+        : `access_token=${encodeURIComponent(accessToken)}`
+
+    const res = await fetch(
+      `${META_API_BASE}/debug_token?input_token=${encodeURIComponent(accessToken)}&${authQuery}`,
+      { headers },
+    )
+    if (res.ok) {
+      const json = (await res.json()) as {
+        data?: {
+          granular_scopes?: { scope?: string; target_ids?: string[] }[]
+        }
+      }
+      const scopes = json?.data?.granular_scopes
+      if (Array.isArray(scopes)) {
+        const mgmt = scopes.find(
+          (s) =>
+            s.scope === 'whatsapp_business_management' || s.scope === 'whatsapp_business_messaging',
+        )
+        if (mgmt?.target_ids?.length && typeof mgmt.target_ids[0] === 'string') {
+          return mgmt.target_ids[0].trim()
+        }
+      }
+    }
+  } catch {
+    // continue
+  }
+
+  // 3. Try checking businesses associated with the token: /me/businesses
+  try {
+    const res = await fetch(`${META_API_BASE}/me/businesses?fields=id,name`, { headers })
+    if (res.ok) {
+      const json = (await res.json()) as { data?: { id?: string }[] }
+      if (json?.data?.length) {
+        for (const biz of json.data) {
+          if (biz.id && biz.id !== candidateId) {
+            const waba = await resolveActualWabaId(biz.id, accessToken)
+            if (waba) return waba
+          }
+        }
+      }
+    }
+  } catch {
+    // continue
+  }
+
+  return null
 }
 
 export async function POST() {
@@ -194,7 +249,7 @@ export async function POST() {
 
     // Detect missing WABA ID or accidental duplicate of Phone Number ID
     if (!activeWabaId || (phoneNumberId && activeWabaId === phoneNumberId)) {
-      const discovered = await discoverWabaIdFromToken(accessToken)
+      const discovered = await resolveActualWabaId(activeWabaId, accessToken)
       if (discovered && discovered !== phoneNumberId) {
         activeWabaId = discovered
         await supabase
@@ -285,7 +340,7 @@ export async function POST() {
           !metaRes.ok &&
           (metaBody?.error?.code === 100 || /invalid parameter/i.test(metaBody?.error?.message || ''))
         ) {
-          const discovered = await discoverWabaIdFromToken(accessToken)
+          const discovered = await resolveActualWabaId(activeWabaId, accessToken)
           if (discovered && discovered !== activeWabaId) {
             console.warn(`[templates/sync] Attempting discovered WABA ID ${discovered} instead of ${activeWabaId}...`)
             const retryUrl = `${META_API_BASE}/${discovered}/message_templates?limit=100&fields=id,name,language,status,category,components`
@@ -317,9 +372,14 @@ export async function POST() {
 
           if (finalCode === 100 || /invalid parameter/i.test(finalMsg)) {
             detailedError =
-              `Meta returned an Invalid Parameter error for WABA ID "${activeWabaId}". ` +
-              `Please verify that: 1) Your WABA ID in Settings is your WhatsApp Business Account ID (found in Meta Business Suite → WhatsApp Manager → Account tools) and NOT your Phone Number ID. ` +
-              `2) Your permanent access token has the 'whatsapp_business_management' and 'whatsapp_business_messaging' permissions.`
+              `Meta returned an Invalid Parameter error for ID "${activeWabaId}". ` +
+              `This typically occurs when "${activeWabaId}" is a Business Portfolio ID (Business Manager ID) or Phone Number ID rather than a WhatsApp Business Account ID (WABA ID). ` +
+              `\n\nTo fix this:\n` +
+              `1. Go to Meta Business Settings (business.facebook.com/settings).\n` +
+              `2. In the left navigation, click Accounts → WhatsApp accounts.\n` +
+              `3. Select your WhatsApp account and copy the ID shown directly under its name.\n` +
+              `4. Paste it into Settings → WhatsApp Config → WhatsApp Business Account ID.\n` +
+              `5. Ensure your System User has Full Control permissions assigned to this WhatsApp account.`
           }
 
           return NextResponse.json({ error: detailedError }, { status: 502 })
