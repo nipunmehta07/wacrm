@@ -131,6 +131,36 @@ function extractSampleValues(
   return sv
 }
 
+/**
+ * Inspect the access token to automatically discover WABA ID(s) granted to it.
+ */
+async function discoverWabaIdFromToken(accessToken: string): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `${META_API_BASE}/debug_token?input_token=${encodeURIComponent(accessToken)}&access_token=${encodeURIComponent(accessToken)}`,
+    )
+    if (!res.ok) return null
+    const json = (await res.json()) as {
+      data?: {
+        granular_scopes?: { scope?: string; target_ids?: string[] }[]
+      }
+    }
+    const scopes = json?.data?.granular_scopes
+    if (Array.isArray(scopes)) {
+      const mgmt = scopes.find(
+        (s) =>
+          s.scope === 'whatsapp_business_management' || s.scope === 'whatsapp_business_messaging',
+      )
+      if (mgmt?.target_ids?.length && typeof mgmt.target_ids[0] === 'string') {
+        return mgmt.target_ids[0].trim()
+      }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 export async function POST() {
   try {
     // Syncing rewrites the account-wide template catalog, which is
@@ -158,40 +188,142 @@ export async function POST() {
       )
     }
 
-    if (!config.waba_id) {
-      return NextResponse.json(
-        {
-          error:
-            t('common.wabaIdMissing'),
-        },
-        { status: 400 },
-      )
-    }
-
+    let activeWabaId = config.waba_id?.trim() || null
+    const phoneNumberId = config.phone_number_id?.trim() || null
     const accessToken = decrypt(config.access_token)
 
+    // Detect missing WABA ID or accidental duplicate of Phone Number ID
+    if (!activeWabaId || (phoneNumberId && activeWabaId === phoneNumberId)) {
+      const discovered = await discoverWabaIdFromToken(accessToken)
+      if (discovered && discovered !== phoneNumberId) {
+        activeWabaId = discovered
+        await supabase
+          .from('whatsapp_config')
+          .update({ waba_id: discovered })
+          .eq('account_id', accountId)
+      } else if (!activeWabaId) {
+        return NextResponse.json(
+          {
+            error: t('common.wabaIdMissing'),
+          },
+          { status: 400 },
+        )
+      } else {
+        return NextResponse.json(
+          {
+            error:
+              `Your WABA ID in Settings (${activeWabaId}) matches your Phone Number ID. ` +
+              `Message templates belong to your WhatsApp Business Account ID (WABA ID), not your Phone Number ID. ` +
+              `Please find your WABA ID in Meta Business Suite → WhatsApp Manager (Account tools) and update it in Settings → WhatsApp Config.`,
+          },
+          { status: 400 },
+        )
+      }
+    }
+
     const metaTemplates: MetaTemplate[] = []
+    let includeQualityScore = true
     let nextUrl:
       | string
-      | null = `${META_API_BASE}/${config.waba_id}/message_templates?limit=100&fields=id,name,language,status,category,components,quality_score`
+      | null = `${META_API_BASE}/${activeWabaId}/message_templates?limit=100&fields=id,name,language,status,category,components,quality_score`
     const PAGE_CAP = 20
     let pageCount = 0
 
     while (nextUrl && pageCount < PAGE_CAP) {
       pageCount++
-      const metaRes: Response = await fetch(nextUrl, {
+      let metaRes: Response = await fetch(nextUrl, {
         headers: { Authorization: `Bearer ${accessToken}` },
       })
 
       if (!metaRes.ok) {
-        let metaErr = t('templates.metaApiStatus', { status: metaRes.status })
+        let metaBody: {
+          error?: {
+            message?: string
+            code?: number
+            error_subcode?: number
+            error_user_msg?: string
+            error_data?: { details?: string }
+          }
+        } | null = null
+
         try {
-          const body = await metaRes.json()
-          if (body?.error?.message) metaErr = body.error.message
+          metaBody = await metaRes.json()
         } catch {
-          // response wasn't JSON — keep the fallback
+          // response wasn't JSON
         }
-        return NextResponse.json({ error: metaErr }, { status: 502 })
+
+        console.error('[templates/sync] Meta API error:', metaBody ?? metaRes.status)
+
+        const errObj = metaBody?.error
+        const errCode = errObj?.code
+        const errMsg = errObj?.message || ''
+
+        // If the request failed with Code 100 / Invalid parameter while requesting quality_score,
+        // retry the query without quality_score:
+        if (
+          pageCount === 1 &&
+          includeQualityScore &&
+          (errCode === 100 || /invalid parameter/i.test(errMsg))
+        ) {
+          console.warn('[templates/sync] Retrying without quality_score parameter...')
+          includeQualityScore = false
+          nextUrl = `${META_API_BASE}/${activeWabaId}/message_templates?limit=100&fields=id,name,language,status,category,components`
+          metaRes = await fetch(nextUrl, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          })
+          if (metaRes.ok) {
+            metaBody = null
+          } else {
+            try {
+              metaBody = await metaRes.json()
+            } catch {}
+          }
+        }
+
+        // If still failing with Code 100 / Invalid parameter, attempt WABA ID auto-recovery
+        if (
+          !metaRes.ok &&
+          (metaBody?.error?.code === 100 || /invalid parameter/i.test(metaBody?.error?.message || ''))
+        ) {
+          const discovered = await discoverWabaIdFromToken(accessToken)
+          if (discovered && discovered !== activeWabaId) {
+            console.warn(`[templates/sync] Attempting discovered WABA ID ${discovered} instead of ${activeWabaId}...`)
+            const retryUrl = `${META_API_BASE}/${discovered}/message_templates?limit=100&fields=id,name,language,status,category,components`
+            const retryRes = await fetch(retryUrl, {
+              headers: { Authorization: `Bearer ${accessToken}` },
+            })
+            if (retryRes.ok) {
+              activeWabaId = discovered
+              await supabase
+                .from('whatsapp_config')
+                .update({ waba_id: discovered })
+                .eq('account_id', accountId)
+              metaRes = retryRes
+              metaBody = null
+            }
+          }
+        }
+
+        if (!metaRes.ok) {
+          const finalErr = metaBody?.error
+          const finalCode = finalErr?.code
+          const finalMsg = finalErr?.message || t('templates.metaApiStatus', { status: metaRes.status })
+          const finalDetails = finalErr?.error_data?.details || finalErr?.error_user_msg || ''
+
+          let detailedError = finalMsg
+          if (finalDetails) {
+            detailedError = `${finalMsg}: ${finalDetails}`
+          }
+
+          if (finalCode === 100 || /invalid parameter/i.test(finalMsg)) {
+            detailedError =
+              `Meta returned an Invalid Parameter error for WABA ID "${activeWabaId}". ` +
+              `Please verify that: 1) Your WABA ID in Settings is your WhatsApp Business Account ID (found in Meta Business Suite → WhatsApp Manager → Account tools) and NOT your Phone Number ID. ` +
+              `2) Your permanent access token has the 'whatsapp_business_management' and 'whatsapp_business_messaging' permissions.`
+          }
+
+          return NextResponse.json({ error: detailedError }, { status: 502 })
+        }
       }
 
       const metaBody: {

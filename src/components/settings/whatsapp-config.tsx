@@ -279,6 +279,10 @@ export function WhatsAppConfig() {
       toast.error(t('wabaIdNotNumeric'));
       return;
     }
+    if (wabaId.trim() && phoneNumberId.trim() && wabaId.trim() === phoneNumberId.trim()) {
+      toast.error('WhatsApp Business Account ID (WABA ID) cannot be the same as Phone Number ID. Find your WABA ID in Meta WhatsApp Manager → Account Tools.');
+      return;
+    }
     if (!config && (!accessToken.trim() || !tokenEdited)) {
       toast.error(t('accessTokenRequired'));
       return;
@@ -766,6 +770,9 @@ export function WhatsAppConfig() {
                 onChange={(e) => setWabaId(e.target.value)}
                 className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
               />
+              <p className="text-xs text-muted-foreground">
+                Found in Meta WhatsApp Manager → Account Tools. Must be your WABA ID, distinct from Phone Number ID.
+              </p>
             </div>
 
             <div className="space-y-2">

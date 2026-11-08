@@ -146,4 +146,56 @@ describe('POST /api/whatsapp/templates/sync', () => {
     expect(body).toMatchObject({ success: true, updated: 1, errors: [] })
     expect(templateUpdates[0].id).toBe('newest')
   })
+
+  it('retries without quality_score when Meta returns invalid parameter code 100', async () => {
+    let callCount = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        callCount++
+        if (url.includes('quality_score')) {
+          return new Response(
+            JSON.stringify({
+              error: { message: 'Invalid parameter', type: 'OAuthException', code: 100 },
+            }),
+            { status: 400 },
+          )
+        }
+        return new Response(JSON.stringify({ data: [META_TEMPLATE] }), { status: 200 })
+      }),
+    )
+
+    const res = await POST()
+    const body = await res.json()
+
+    expect(callCount).toBe(2)
+    expect(body).toMatchObject({ success: true, inserted: 1 })
+  })
+
+  it('explains the error clearly when WABA ID fails with code 100', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              message: 'Invalid parameter',
+              type: 'OAuthException',
+              code: 100,
+              error_data: { details: 'Unsupported get request' },
+            },
+          }),
+          { status: 400 },
+        ),
+      ),
+    )
+
+    const res = await POST()
+    const body = await res.json()
+
+    expect(res.status).toBe(502)
+    expect(body.error).toContain('Invalid Parameter')
+    expect(body.error).toContain('WABA ID "WABA-1"')
+    expect(body.error).toContain('WhatsApp Manager')
+  })
 })
