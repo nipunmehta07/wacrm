@@ -38,8 +38,17 @@ import {
   ChevronLeft,
   ChevronRight,
   AlertCircle,
+  Check,
+  Clock,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+
+export type RecipientStatus =
+  | 'ready'
+  | 'pending'
+  | 'sending'
+  | 'sent'
+  | 'failed';
 
 interface Step4Props {
   name: string;
@@ -51,6 +60,7 @@ interface Step4Props {
   onBack: () => void;
   isProcessing: boolean;
   progress: number;
+  recipientStatuses?: Record<string, RecipientStatus>;
 }
 
 function getInitials(name?: string): string {
@@ -58,6 +68,50 @@ function getInitials(name?: string): string {
   const parts = name.trim().split(/\s+/);
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function renderStatusBadge(
+  status: RecipientStatus,
+  t: (key: string) => string,
+) {
+  switch (status) {
+    case 'sending':
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-500">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          {t('scheduleSend.statusSending')}
+        </span>
+      );
+    case 'sent':
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-500">
+          <Check className="h-3 w-3" />
+          {t('scheduleSend.statusSent')}
+        </span>
+      );
+    case 'failed':
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
+          <AlertCircle className="h-3 w-3" />
+          {t('scheduleSend.statusFailed')}
+        </span>
+      );
+    case 'pending':
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-500">
+          <Clock className="h-3 w-3" />
+          {t('scheduleSend.statusPending')}
+        </span>
+      );
+    case 'ready':
+    default:
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+          <Clock className="h-3 w-3" />
+          {t('scheduleSend.statusReady')}
+        </span>
+      );
+  }
 }
 
 export function Step4ScheduleSend({
@@ -70,6 +124,7 @@ export function Step4ScheduleSend({
   onBack,
   isProcessing,
   progress,
+  recipientStatuses,
 }: Step4Props) {
   const t = useTranslations('Broadcasts.wizard');
   const [showConfirm, setShowConfirm] = useState(false);
@@ -198,6 +253,7 @@ export function Step4ScheduleSend({
           value={name}
           onChange={(e) => onNameChange(e.target.value)}
           placeholder={t('scheduleSend.broadcastNamePlaceholder')}
+          disabled={isProcessing}
           className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
         />
       </div>
@@ -245,6 +301,27 @@ export function Step4ScheduleSend({
           </div>
         </div>
       </div>
+
+      {/* Sending Progress */}
+      {isProcessing && (
+        <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 shadow-sm animate-in fade-in duration-200">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              <p className="text-sm font-medium text-foreground">
+                {t('scheduleSend.sending')}
+              </p>
+            </div>
+            <span className="text-xs font-semibold text-primary">{progress}%</span>
+          </div>
+          <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+            <div
+              className="h-2 rounded-full bg-primary transition-all duration-300 ease-out"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Recipients Preview */}
       <div className="rounded-xl border border-border bg-card/50 overflow-hidden">
@@ -306,14 +383,17 @@ export function Step4ScheduleSend({
             <Table>
               <TableHeader>
                 <TableRow className="border-border hover:bg-transparent">
-                  <TableHead className="text-muted-foreground text-xs w-[40%]">
+                  <TableHead className="text-muted-foreground text-xs w-[32%]">
                     {t('scheduleSend.recipientColName')}
                   </TableHead>
-                  <TableHead className="text-muted-foreground text-xs w-[35%]">
+                  <TableHead className="text-muted-foreground text-xs w-[25%]">
                     {t('scheduleSend.recipientColPhone')}
                   </TableHead>
-                  <TableHead className="text-muted-foreground text-xs w-[25%]">
+                  <TableHead className="text-muted-foreground text-xs w-[23%]">
                     {t('scheduleSend.recipientColDetails')}
+                  </TableHead>
+                  <TableHead className="text-muted-foreground text-xs w-[20%] text-right">
+                    {t('scheduleSend.recipientColStatus')}
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -323,6 +403,11 @@ export function Step4ScheduleSend({
                     contact.name?.trim() || t('scheduleSend.unnamedContact');
                   const initials = getInitials(contact.name);
                   const details = contact.company || contact.email || '-';
+                  const status: RecipientStatus =
+                    (recipientStatuses &&
+                      ((contact.id && recipientStatuses[contact.id]) ||
+                        (contact.phone && recipientStatuses[contact.phone]))) ||
+                    (isProcessing ? 'pending' : 'ready');
 
                   return (
                     <TableRow
@@ -346,8 +431,11 @@ export function Step4ScheduleSend({
                       <TableCell className="py-2.5 font-mono text-xs text-foreground/85">
                         {contact.phone || '-'}
                       </TableCell>
-                      <TableCell className="py-2.5 text-xs text-muted-foreground truncate max-w-[180px]">
+                      <TableCell className="py-2.5 text-xs text-muted-foreground truncate max-w-[150px]">
                         {details}
+                      </TableCell>
+                      <TableCell className="py-2.5 text-right">
+                        {renderStatusBadge(status, t)}
                       </TableCell>
                     </TableRow>
                   );
@@ -400,27 +488,6 @@ export function Step4ScheduleSend({
         )}
       </div>
 
-      {/* Processing overlay */}
-      {isProcessing && (
-        <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
-          <div className="mb-2 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Loader2 className="h-4 w-4 animate-spin text-primary" />
-              <p className="text-sm font-medium text-foreground">
-                {t('scheduleSend.sending')}
-              </p>
-            </div>
-            <span className="text-xs font-medium text-primary">{progress}%</span>
-          </div>
-          <div className="h-1.5 w-full rounded-full bg-muted">
-            <div
-              className="h-1.5 rounded-full bg-primary transition-all duration-300"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-        </div>
-      )}
-
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
         <Button
           variant="outline"
@@ -451,15 +518,24 @@ export function Step4ScheduleSend({
                 <Button
                   disabled={!name.trim() || isProcessing}
                   className="bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-                />
+                >
+                  {isProcessing ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      {t('scheduleSend.sending')}
+                    </>
+                  ) : (
+                    <>
+                      <Send className="h-4 w-4" />
+                      {t('scheduleSend.sendNow')}
+                    </>
+                  )}
+                </Button>
               }
-            >
-              <Send className="h-4 w-4" />
-              {t('scheduleSend.sendNow')}
-            </DialogTrigger>
-            <DialogContent className="border-border bg-popover sm:max-w-md">
+            />
+            <DialogContent className="border-border bg-card">
               <DialogHeader>
-                <DialogTitle className="text-popover-foreground">
+                <DialogTitle className="text-foreground">
                   {t('scheduleSend.confirmTitle')}
                 </DialogTitle>
                 <DialogDescription className="text-muted-foreground">
@@ -467,14 +543,12 @@ export function Step4ScheduleSend({
                     count: estimatedReach,
                     template: template.name,
                     b: (chunks) => (
-                      <span className="font-medium text-popover-foreground">
-                        {chunks}
-                      </span>
+                      <span className="font-medium text-foreground">{chunks}</span>
                     ),
                   })}
                 </DialogDescription>
               </DialogHeader>
-              <DialogFooter>
+              <DialogFooter className="gap-2 sm:gap-0">
                 <Button
                   variant="outline"
                   onClick={() => setShowConfirm(false)}

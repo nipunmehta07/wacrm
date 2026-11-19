@@ -1100,7 +1100,13 @@
         "recipientColDetails": "상세 정보",
         "showingRecipients": "전체 {total}명 중 {start}–{end}명 표시 중",
         "pageIndicator": "{pages}페이지 중 {page}페이지",
-        "unnamedContact": "이름 없는 연락처"
+        "unnamedContact": "이름 없는 연락처",
+        "recipientColStatus": "상태",
+        "statusReady": "준비됨",
+        "statusPending": "대기 중",
+        "statusSending": "전송 중...",
+        "statusSent": "전송됨",
+        "statusFailed": "실패"
       }
     },
     "sending": {

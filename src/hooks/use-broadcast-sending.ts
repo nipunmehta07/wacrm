@@ -55,6 +55,8 @@ interface BroadcastPayload {
 
 export type BroadcastSendInterruption = 'lease_lost' | 'lease_error';
 
+export type RecipientSendStatus = 'ready' | 'pending' | 'sending' | 'sent' | 'failed';
+
 export interface BroadcastSendOutcome {
   broadcastId: string;
   interruption: BroadcastSendInterruption | null;
@@ -64,6 +66,7 @@ interface UseBroadcastSendingReturn {
   createAndSendBroadcast: (payload: BroadcastPayload) => Promise<BroadcastSendOutcome>;
   isProcessing: boolean;
   progress: number;
+  recipientStatuses: Record<string, RecipientSendStatus>;
 }
 
 /**
@@ -184,6 +187,7 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
   const { accountId } = useAuth();
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [recipientStatuses, setRecipientStatuses] = useState<Record<string, RecipientSendStatus>>({});
 
   async function resolveAudience(audience: AudienceConfig): Promise<Contact[]> {
     const supabase = createClient();
@@ -327,6 +331,13 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
       if (contacts.length === 0) {
         throw new Error(t('noContactsForAudience'));
       }
+
+      const initialStatuses: Record<string, RecipientSendStatus> = {};
+      for (const c of contacts) {
+        if (c.id) initialStatuses[c.id] = 'pending';
+        if (c.phone) initialStatuses[c.phone] = 'pending';
+      }
+      setRecipientStatuses(initialStatuses);
 
       // ── Step 2: Create broadcast row ──────────────────────────────
       setProgress(10);
@@ -480,6 +491,17 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
 
         if (apiRecipients.length === 0) continue;
 
+        // Mark batch as sending
+        setRecipientStatuses((prev) => {
+          const next = { ...prev };
+          for (const r of batch) {
+            if (r.contact_id) next[r.contact_id] = 'sending';
+            if (r.contact?.id) next[r.contact.id] = 'sending';
+            if (r.contact?.phone) next[r.contact.phone] = 'sending';
+          }
+          return next;
+        });
+
         try {
           await keepDeliveryLease();
         } catch (err) {
@@ -560,11 +582,33 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
                 .eq('id', recipient.id);
             }
           }
+
+          setRecipientStatuses((prev) => {
+            const next = { ...prev };
+            for (const recipient of batch) {
+              const phone = recipient.contact?.phone;
+              const result = phone ? resultsByPhone.get(phone) : undefined;
+              const st: RecipientSendStatus = result?.status === 'sent' ? 'sent' : 'failed';
+              if (recipient.contact_id) next[recipient.contact_id] = st;
+              if (recipient.contact?.id) next[recipient.contact.id] = st;
+              if (phone) next[phone] = st;
+            }
+            return next;
+          });
         } catch (err) {
           if (err instanceof DeliveryLeaseInterrupted) {
             interruption = err.interruption;
             break;
           }
+          setRecipientStatuses((prev) => {
+            const next = { ...prev };
+            for (const recipient of batch) {
+              if (recipient.contact_id) next[recipient.contact_id] = 'failed';
+              if (recipient.contact?.id) next[recipient.contact.id] = 'failed';
+              if (recipient.contact?.phone) next[recipient.contact.phone] = 'failed';
+            }
+            return next;
+          });
           for (const recipient of batch) {
             failedCount++;
             await supabase
@@ -608,5 +652,5 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
     }
   }
 
-  return { createAndSendBroadcast, isProcessing, progress };
+  return { createAndSendBroadcast, isProcessing, progress, recipientStatuses };
 }

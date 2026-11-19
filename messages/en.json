@@ -1100,7 +1100,13 @@
         "recipientColDetails": "Details",
         "showingRecipients": "Showing {start}–{end} of {total} recipients",
         "pageIndicator": "Page {page} of {pages}",
-        "unnamedContact": "Unnamed Contact"
+        "unnamedContact": "Unnamed Contact",
+        "recipientColStatus": "Status",
+        "statusReady": "Ready",
+        "statusPending": "Pending",
+        "statusSending": "Sending...",
+        "statusSent": "Sent",
+        "statusFailed": "Failed"
       }
     },
     "sending": {
